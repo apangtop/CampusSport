@@ -4,9 +4,15 @@
       <template #header>
         <div class="card-header">
           <span style="font-size:16px;font-weight:600">班级积分榜</span>
-          <el-select v-model="filterMeet" placeholder="选择运动会" style="width:200px" @change="load">
-            <el-option v-for="m in meets" :key="m.id" :label="m.name" :value="m.id" />
-          </el-select>
+          <div style="display:flex;gap:8px">
+            <el-select v-model="filterMeet" placeholder="选择运动会" style="width:200px" @change="load">
+              <el-option v-for="m in meets" :key="m.id" :label="m.name" :value="m.id" />
+            </el-select>
+            <el-select v-model="filterGrade" style="width:160px" @change="load">
+              <el-option label="本年级排名" :value="teacherGrade" />
+              <el-option label="全校总榜" value="" />
+            </el-select>
+          </div>
         </div>
       </template>
       <el-table :data="points" v-loading="loading" :row-class-name="rowClass">
@@ -43,12 +49,15 @@
 import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { meetApi, pointsApi } from '@/api'
+import { extractGrade } from '@/utils/format'
 
 const auth = useAuthStore()
+const teacherGrade = extractGrade(auth.user?.class_name)
 const meets = ref([])
 const points = ref([])
 const loading = ref(false)
 const filterMeet = ref('')
+const filterGrade = ref(teacherGrade)
 
 const rowClass = ({ row }) => {
   if (row.class_name === auth.user?.class_name) return 'row-my-class'
@@ -58,7 +67,9 @@ const rowClass = ({ row }) => {
 async function load() {
   if (!filterMeet.value) return
   loading.value = true
-  const res = await pointsApi.list({ sports_meet: filterMeet.value })
+  const params = { sports_meet: filterMeet.value }
+  if (filterGrade.value) params.grade = filterGrade.value
+  const res = await pointsApi.list(params)
   points.value = res.results || res
   loading.value = false
 }

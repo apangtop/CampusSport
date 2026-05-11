@@ -66,6 +66,7 @@ class Event(models.Model):
     name = models.CharField('项目名称', max_length=100)
     event_type = models.CharField('项目类型', max_length=30, choices=TYPE_CHOICES)
     gender = models.CharField('参赛性别', max_length=10, choices=GENDER_CHOICES, default='male')
+    grade = models.CharField('参赛年级', max_length=20, blank=True, help_text='留空=全校混赛，填写如2028级=仅限该年级')
     result_unit = models.CharField('成绩单位', max_length=20, choices=UNIT_CHOICES, default='second')
     stage_type = models.CharField('赛制', max_length=20, choices=STAGE_CHOICES, default='single')
 
@@ -111,7 +112,7 @@ class Event(models.Model):
         return f'{self.sports_meet} - {self.name}'
 
     def get_default_score_rules(self):
-        return {1: 7, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
+        return {1: 4, 2: 3, 3: 2, 4: 1}
 
 
 class Schedule(models.Model):

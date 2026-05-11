@@ -2,3 +2,12 @@
 body { font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f5f7fa; }
 .el-card { border-radius: 10px; }
 .el-table .el-table__header th { background: #f5f7fa !important; font-weight: 600; }
+
+/* 移动端表格可横向滚动 */
+@media (max-width: 767px) {
+  .el-card { border-radius: 6px; }
+  .el-table { font-size: 13px; }
+  .el-dialog { width: 92% !important; }
+  .el-descriptions { font-size: 12px; }
+  .el-form-item__label { font-size: 13px; }
+}

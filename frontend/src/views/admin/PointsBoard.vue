@@ -4,7 +4,15 @@
     <el-card shadow="never">
       <template #header>
         <div class="card-header">
-          <span>班级总积分排名</span>
+          <div style="display:flex;gap:12px;align-items:center">
+            <span>班级积分排名</span>
+            <el-select v-model="filterGrade" placeholder="选择年级" style="width:180px" @change="load" clearable>
+              <el-option label="全校总榜" value="" />
+              <el-option label="2028级（初一）" value="2028级" />
+              <el-option label="2027级（初二）" value="2027级" />
+              <el-option label="2026级（初三）" value="2026级" />
+            </el-select>
+          </div>
           <el-button @click="recalculate">重新计算积分</el-button>
         </div>
       </template>
@@ -41,6 +49,7 @@ const route = useRoute()
 const meetId = route.params.id
 const points = ref([])
 const loading = ref(false)
+const filterGrade = ref('')
 
 const rowClass = ({ row }) => {
   if (row.rank === 1) return 'row-gold'
@@ -51,7 +60,9 @@ const rowClass = ({ row }) => {
 
 async function load() {
   loading.value = true
-  const res = await pointsApi.list({ sports_meet: meetId })
+  const params = { sports_meet: meetId }
+  if (filterGrade.value !== '') params.grade = filterGrade.value
+  const res = await pointsApi.list(params)
   points.value = res.results || res
   loading.value = false
 }

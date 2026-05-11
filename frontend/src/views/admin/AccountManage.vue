@@ -31,6 +31,7 @@
             <el-button link :type="row.is_active ? 'danger' : 'success'" @click="toggleActive(row)">
               {{ row.is_active ? '禁用' : '启用' }}
             </el-button>
+            <el-button link type="danger" @click="deleteUser(row)" v-if="row.username !== 'admin'">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -139,6 +140,15 @@ async function toggleActive(row) {
   await userApi.update(row.id, { is_active: !row.is_active })
   ElMessage.success(row.is_active ? '已禁用' : '已启用')
   load()
+}
+
+async function deleteUser(row) {
+  try {
+    await ElMessageBox.confirm(`确认删除账号「${row.real_name || row.username}」？此操作不可恢复。`, '警告', { type: 'warning' })
+    await userApi.delete(row.id)
+    ElMessage.success('已删除')
+    load()
+  } catch {}
 }
 
 onMounted(load)

@@ -25,7 +25,8 @@ export const meetApi = {
   update: (id, data) => request.patch(`/sports-meets/${id}/`, data),
   delete: id => request.delete(`/sports-meets/${id}/`),
   setStatus: (id, status) => request.post(`/sports-meets/${id}/set_status/`, { status }),
-  scheduleOverview: id => request.get(`/sports-meets/${id}/schedule_overview/`)
+  scheduleOverview: id => request.get(`/sports-meets/${id}/schedule_overview/`),
+  scoreSummary: (id, params) => request.get(`/sports-meets/${id}/score_summary/`, { params })
 }
 
 // ===== 比赛项目 =====
@@ -65,6 +66,7 @@ export const registrationApi = {
   bulkRegister: data => request.post('/registrations/bulk_register/', data),
   approve: id => request.post(`/registrations/${id}/approve/`),
   reject: id => request.post(`/registrations/${id}/reject/`),
+  cancel: id => request.post(`/registrations/${id}/cancel/`),
   approveAll: data => request.post('/registrations/approve_all/', data)
 }
 
@@ -83,7 +85,8 @@ export const scoreApi = {
   update: (id, data) => request.patch(`/scores/${id}/`, data),
   batchSubmit: data => request.post('/scores/batch_submit/', data),
   calculateRanks: data => request.post('/scores/calculate_ranks/', data),
-  confirmAdvancement: data => request.post('/scores/confirm_advancement/', data)
+  confirmAdvancement: data => request.post('/scores/confirm_advancement/', data),
+  autoAdvanceTop: data => request.post('/scores/auto_advance_top/', data)
 }
 
 // ===== 团体成绩 =====

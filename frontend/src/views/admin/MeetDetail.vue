@@ -4,7 +4,7 @@
 
     <el-row :gutter="16" style="margin-bottom:20px">
       <el-col :span="4" v-for="item in navItems" :key="item.path">
-        <el-card class="nav-card" shadow="hover" @click="$router.push(item.path)">
+        <el-card class="nav-card" shadow="hover" @click="goTo(item.path)">
           <div class="nav-inner">
             <el-icon :size="32" :color="item.color"><component :is="item.icon" /></el-icon>
             <span>{{ item.label }}</span>
@@ -21,11 +21,11 @@
             <el-descriptions-item label="名称">{{ meet.name }}</el-descriptions-item>
             <el-descriptions-item label="届次">第{{ meet.session }}届</el-descriptions-item>
             <el-descriptions-item label="学校">{{ meet.school || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="日期">{{ meet.start_date }} ~ {{ meet.end_date }}</el-descriptions-item>
+            <el-descriptions-item label="日期">{{ shortDate(meet.start_date) }} ~ {{ shortDate(meet.end_date) }}</el-descriptions-item>
             <el-descriptions-item label="状态">
               <el-tag :type="statusType(meet.status)" size="small">{{ statusLabel(meet.status) }}</el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="报名截止">{{ meet.registration_deadline || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="报名截止">{{ shortDatetime(meet.registration_deadline) || '-' }}</el-descriptions-item>
             <el-descriptions-item label="每人项目上限">{{ meet.max_events_per_person }} 个</el-descriptions-item>
           </el-descriptions>
         </el-card>
@@ -52,14 +52,20 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { meetApi, eventApi } from '@/api'
+import { shortDate, shortDatetime } from '@/utils/format'
 
 const route = useRoute()
+const router = useRouter()
 const meetId = route.params.id
 const meet = ref(null)
 const events = ref([])
 const loading = ref(false)
+
+function goTo(path) {
+  router.push(path)
+}
 
 const navItems = computed(() => [
   { label: '项目管理', icon: 'List', color: '#1a6db5', path: `/admin/meets/${meetId}/events` },
@@ -68,6 +74,7 @@ const navItems = computed(() => [
   { label: '成绩管理', icon: 'DataLine', color: '#f56c6c', path: `/admin/meets/${meetId}/scores` },
   { label: '积分榜', icon: 'Trophy', color: '#9254de', path: `/admin/meets/${meetId}/points` },
   { label: '导出报告', icon: 'Download', color: '#13c2c2', path: `/admin/meets/${meetId}/report` },
+  { label: '参赛人员', icon: 'Avatar', color: '#409eff', path: `/admin/meets/${meetId}/participants` },
 ])
 
 const statusMap = { preparing:'筹备中', registration:'报名中', ongoing:'进行中', finished:'已结束' }
@@ -81,7 +88,7 @@ const genderLabel = g => genderMap[g] || g
 
 onMounted(async () => {
   loading.value = true
-  const [m, e] = await Promise.all([meetApi.get(meetId), eventApi.list({ sports_meet: meetId })])
+  const [m, e] = await Promise.all([meetApi.get(meetId), eventApi.list({ sports_meet: meetId, page_size: 200 })])
   meet.value = m
   events.value = e.results || e
   loading.value = false

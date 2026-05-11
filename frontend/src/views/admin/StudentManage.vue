@@ -24,9 +24,14 @@
           <el-option label="女" value="female" />
         </el-select>
         <el-button @click="clearFilter">重置</el-button>
+        <el-button v-if="selectedIds.length" type="danger" @click="batchDelete">删除选中（{{ selectedIds.length }}）</el-button>
       </div>
 
-      <el-table :data="students" v-loading="loading">
+      <el-table :data="students" v-loading="loading" @selection-change="onSelect">
+        <el-table-column type="selection" width="45" />
+        <el-table-column label="序号" width="55" align="center">
+          <template #default="{ $index }">{{ (page - 1) * pageSize + $index + 1 }}</template>
+        </el-table-column>
         <el-table-column prop="name" label="姓名" width="100" />
         <el-table-column prop="gender" label="性别" width="70" align="center">
           <template #default="{ row }">
@@ -46,9 +51,14 @@
         </el-table-column>
       </el-table>
 
-      <div style="display:flex;justify-content:flex-end;margin-top:16px">
+      <div style="display:flex;justify-content:flex-end;align-items:center;margin-top:16px;gap:8px">
+        <span style="font-size:13px;color:#909399">每页</span>
+        <el-select v-model="pageSize" style="width:70px" @change="load" size="small">
+          <el-option label="10" :value="10" /><el-option label="20" :value="20" /><el-option label="30" :value="30" /><el-option label="50" :value="50" /><el-option label="100" :value="100" />
+        </el-select>
+        <span style="font-size:13px;color:#909399">条</span>
         <el-pagination v-model:current-page="page" :page-size="pageSize"
-          :total="total" layout="total, prev, pager, next" @current-change="load" />
+          :total="total" layout="prev, pager, next" @current-change="load" size="small" background />
       </div>
     </el-card>
 
@@ -113,7 +123,22 @@ const formRef = ref()
 const filterName = ref('')
 const filterClass = ref('')
 const filterGender = ref('')
+const selectedIds = ref([])
 const page = ref(1)
+
+function onSelect(rows) { selectedIds.value = rows.map(r => r.id) }
+
+async function batchDelete() {
+  try {
+    await ElMessageBox.confirm(`确认删除选中的 ${selectedIds.value.length} 名学生？`, '批量删除', { type: 'warning' })
+    for (const id of selectedIds.value) {
+      await studentApi.delete(id)
+    }
+    ElMessage.success(`已删除 ${selectedIds.value.length} 名学生`)
+    selectedIds.value = []
+    load()
+  } catch {}
+}
 const pageSize = ref(20)
 const total = ref(0)
 
@@ -139,7 +164,7 @@ function onFilterChange() {
 
 async function load() {
   loading.value = true
-  const params = { page: page.value }
+  const params = { page: page.value, page_size: pageSize.value }
   if (filterName.value) params.name = filterName.value
   if (filterClass.value) params.class_name = filterClass.value
   if (filterGender.value) params.gender = filterGender.value

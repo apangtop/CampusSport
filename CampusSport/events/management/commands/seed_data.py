@@ -11,14 +11,14 @@ from django.utils import timezone
 User = get_user_model()
 
 # ── 班级配置 ──────────────────────────────────────────────
-# 2026级=初三, 2027级=初二, 2028级=初一, 2025级=往届
+# 2027级=初二(3班), 2028级=初一(4班), 2025/2026=往届(仅用于数据)
 GRADES = [
-    ('2025级', 3),  # 往届（已毕业）
-    ('2026级', 3),  # 初三
-    ('2027级', 3),  # 初二
-    ('2028级', 3),  # 初一
+    ('2025级', 3),  # 往届（历史数据用）
+    ('2026级', 3),  # 往届（历史数据用）
+    ('2027级', 3),  # 初二：3个班
+    ('2028级', 4),  # 初一：4个班
 ]
-CLASSES_PER_GRADE = 3
+CLASSES_PER_GRADE = 3  # 仅对历史年级生效，初一单独处理
 
 MALE_NAMES = [
     '李伟', '王强', '张磊', '刘洋', '陈浩', '杨帆', '赵龙', '孙杰', '周明', '吴超',
@@ -36,40 +36,74 @@ FEMALE_NAMES = [
 ]
 
 # ── 项目配置 ──────────────────────────────────────────────
-EVENTS_TEMPLATE = [
+# 按年级隔离的项目（每个年级一套）
+# 径赛：100m/200m 预赛+决赛(two)，其余直接决赛(single)
+# 田赛：全部直接决赛(single)
+PER_GRADE_EVENTS = [
     # (name, event_type, gender, result_unit, stage_type, max_per_class, team_size, score_multiplier)
-    ('男子100米', 'track', 'male',   'second', 'two',    2, 0, 1.0),
-    ('女子100米', 'track', 'female', 'second', 'two',    2, 0, 1.0),
-    ('男子400米', 'track', 'male',   'second', 'single', 2, 0, 1.0),
-    ('女子400米', 'track', 'female', 'second', 'single', 2, 0, 1.0),
-    ('男子800米', 'track', 'male',   'second', 'single', 2, 0, 1.0),
-    ('女子800米', 'track', 'female', 'second', 'single', 2, 0, 1.0),
-    ('男子跳远',  'field', 'male',   'meter',  'single', 2, 0, 1.0),
-    ('女子跳远',  'field', 'female', 'meter',  'single', 2, 0, 1.0),
-    ('男子铅球',  'field', 'male',   'meter',  'single', 2, 0, 1.0),
-    ('女子铅球',  'field', 'female', 'meter',  'single', 2, 0, 1.0),
-    ('男子跳高',  'field', 'male',   'meter',  'single', 2, 0, 1.0),
-    ('女子跳高',  'field', 'female', 'meter',  'single', 2, 0, 1.0),
-    ('趣味呼啦圈', 'fun_individual', 'mixed', 'count', 'single', 3, 0, 1.0),
-    ('趣味跳绳',  'fun_individual', 'mixed',  'count', 'single', 3, 0, 1.0),
+    # ─ 径赛 ─
+    ('男子100米', 'track', 'male',   'second', 'two',    4, 0, 1.0),
+    ('女子100米', 'track', 'female', 'second', 'two',    4, 0, 1.0),
+    ('男子200米', 'track', 'male',   'second', 'two',    4, 0, 1.0),
+    ('女子200米', 'track', 'female', 'second', 'two',    4, 0, 1.0),
+    ('男子400米', 'track', 'male',   'second', 'single', 4, 0, 1.0),
+    ('女子400米', 'track', 'female', 'second', 'single', 4, 0, 1.0),
+    ('女子800米', 'track', 'female', 'second', 'single', 4, 0, 1.0),
+    ('男子1000米','track', 'male',   'second', 'single', 4, 0, 1.0),
+    # ─ 田赛 ─
+    ('男子跳高',  'field', 'male',   'meter',  'single', 4, 0, 1.0),
+    ('女子跳高',  'field', 'female', 'meter',  'single', 4, 0, 1.0),
+    ('男子跳远',  'field', 'male',   'meter',  'single', 4, 0, 1.0),
+    ('女子跳远',  'field', 'female', 'meter',  'single', 4, 0, 1.0),
+    ('男子实心球','field', 'male',   'meter',  'single', 4, 0, 1.0),
+    ('女子实心球','field', 'female', 'meter',  'single', 4, 0, 1.0),
+    # ─ 团体 ─
     ('男子4×100米接力', 'relay', 'male',  'second', 'single', 1, 4, 2.0),
     ('女子4×100米接力', 'relay', 'female','second', 'single', 1, 4, 2.0),
-    ('男子拔河',  'team_confrontation', 'male',  'rank', 'single', 1, 10, 2.0),
-    ('女子拔河',  'team_confrontation', 'female','rank', 'single', 1, 10, 2.0),
+    ('男子4×250米接力', 'relay', 'male',  'second', 'single', 1, 4, 2.0),
+    ('女子4×250米接力', 'relay', 'female','second', 'single', 1, 4, 2.0),
 ]
 
-SCORE_RULES = {1: 7, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
+# 全校混赛项目（不分年级）
+MIXED_EVENTS = []
 
-VENUES = ['田径场直道', '田径场弯道', '跳远沙坑A', '跳远沙坑B', '铅球区', '跳高区', '操场中央', '篮球场']
+# 参赛年级
+IN_SCHOOL_GRADES = ['2028级', '2027级']
+
+SCORE_RULES = {1: 4, 2: 3, 3: 2, 4: 1}
+
+VENUES = ['操场']
+
+
+def _create_schedule(event, stage_type, time_cursor):
+    """为项目创建赛程"""
+    from events.models import Schedule
+    stages = ['final']
+    if stage_type == 'two':
+        stages = ['preliminary', 'final']
+    elif stage_type == 'three':
+        stages = ['preliminary', 'semifinal', 'final']
+    for si, stg in enumerate(stages):
+        Schedule.objects.get_or_create(
+            event=event, stage=stg, group_number=1,
+            defaults=dict(
+                scheduled_time=time_cursor + timedelta(hours=si + random.randint(0, 2)),
+                venue=random.choice(VENUES),
+            )
+        )
 
 
 def rand_result(unit, event_type):
     """生成随机成绩"""
     if unit == 'second':
-        if '800' in event_type:
+        if '1000' in event_type:
+            v = round(random.uniform(180, 300), 2)
+        elif '800' in event_type:
             v = round(random.uniform(140, 220), 2)
         elif '400' in event_type:
             v = round(random.uniform(55, 90), 2)
+        elif '200' in event_type:
+            v = round(random.uniform(23.0, 32.0), 2)
         elif '接力' in event_type:
             v = round(random.uniform(48, 65), 2)
         else:
@@ -78,7 +112,7 @@ def rand_result(unit, event_type):
     elif unit == 'meter':
         if '跳远' in event_type:
             v = round(random.uniform(3.2, 6.5), 2)
-        elif '铅球' in event_type:
+        elif '实心球' in event_type:
             v = round(random.uniform(5.0, 14.0), 2)
         else:  # 跳高
             v = round(random.uniform(1.0, 1.8), 2)
@@ -95,35 +129,39 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--clear', action='store_true', help='清空所有已有数据后重新生成')
+        parser.add_argument('--clear-only', action='store_true', help='只清空数据，不生成新数据')
+        parser.add_argument('--skip-students', action='store_true', help='跳过学生生成')
 
     def handle(self, *args, **options):
-        if options['clear']:
+        skip_students = options.get('skip_students', False)
+        if options['clear'] or options['clear_only']:
             self.stdout.write('[!] 正在清空旧数据...')
-            self._clear_data()
+            self._clear_data(skip_students=skip_students)
+        if options['clear_only']:
+            self.stdout.write(self.style.SUCCESS('[OK] 数据已清空，未生成新数据'))
+            return
 
-        self.stdout.write('── Step 1/6  创建账号 ──')
+        self.stdout.write('── Step 1/4  创建账号 ──')
         admin, teachers, referees = self._create_users()
 
-        self.stdout.write('── Step 2/6  创建学生 ──')
-        class_students = self._create_students()  # {class_name: [Student, ...]}
+        if options['skip_students']:
+            class_students = {}
+            self.stdout.write('── Step 2/4  创建学生 ── 已跳过')
+        else:
+            self.stdout.write('── Step 2/4  创建学生 ──')
+            class_students = self._create_students()
 
-        self.stdout.write('── Step 3/6  创建运动会 ──')
+        self.stdout.write('── Step 3/4  创建运动会 ──')
         meets = self._create_meets(admin)
 
-        self.stdout.write('── Step 4/6  创建比赛项目 ──')
+        self.stdout.write('── Step 4/4  创建比赛项目 ──')
         events_by_meet = self._create_events(meets, referees)
 
-        self.stdout.write('── Step 5/6  生成报名数据 ──')
-        self._create_registrations(meets, events_by_meet, class_students, teachers, admin)
-
-        self.stdout.write('── Step 6/6  录入成绩 & 汇总积分 ──')
-        self._create_scores(meets, events_by_meet, admin)
-
-        self.stdout.write(self.style.SUCCESS('\n[OK] 测试数据生成完毕！'))
+        self.stdout.write(self.style.SUCCESS('\n[OK] 数据生成完毕（不含报名和成绩）！'))
         self._print_summary(meets, class_students)
 
     # ─────────────────────────────────────────────────────────
-    def _clear_data(self):
+    def _clear_data(self, skip_students=False):
         from scores.models import Score, TeamScore, ConfrontationRound, ClassPoints
         from registration.models import Registration, TeamRegistration, Student
         from events.models import SportsMeet, Event, Schedule
@@ -136,48 +174,19 @@ class Command(BaseCommand):
         Schedule.objects.all().delete()
         Event.objects.all().delete()
         SportsMeet.objects.all().delete()
-        Student.objects.all().delete()
-        User.objects.filter(is_superuser=False).delete()
-        self.stdout.write('  旧数据已清空')
+        if not skip_students:
+            Student.objects.all().delete()
+        self.stdout.write('  旧数据已清空（账号已保留' + ('，学生已保留' if skip_students else '') + '）')
 
     # ─────────────────────────────────────────────────────────
     def _create_users(self):
+        # 只确保 admin 存在，不创建/覆盖教师和裁判
         admin, _ = User.objects.get_or_create(
             username='admin',
-            defaults=dict(role='admin', real_name='张体育', phone='13800000001',
-                          is_staff=True, is_superuser=True)
+            defaults=dict(role='admin', real_name='管理员', is_staff=True, is_superuser=True)
         )
-        admin.set_password('admin123')
-        admin.save()
-
-        teachers = []
-        for grade_year, n_class in GRADES[1:]:  # 在校三个年级
-            for cls_num in range(1, CLASSES_PER_GRADE + 1):
-                class_name = f'{grade_year}{cls_num}班'
-                uname = f'teacher_{grade_year}_{cls_num}'
-                t, _ = User.objects.get_or_create(
-                    username=uname,
-                    defaults=dict(role='teacher', real_name=f'{class_name}班主任',
-                                  phone=f'138{random.randint(10000000,99999999)}',
-                                  class_name=class_name)
-                )
-                t.set_password('teacher123')
-                t.save()
-                teachers.append(t)
-
-        referees = []
-        for i, rname in enumerate(['王裁判', '李裁判', '陈裁判', '刘裁判'], 1):
-            r, _ = User.objects.get_or_create(
-                username=f'referee{i}',
-                defaults=dict(role='referee', real_name=rname,
-                              phone=f'139{random.randint(10000000,99999999)}')
-            )
-            r.set_password('referee123')
-            r.save()
-            referees.append(r)
-
-        self.stdout.write(f'  管理员1 教师{len(teachers)} 裁判{len(referees)}')
-        return admin, teachers, referees
+        self.stdout.write('  账号已跳过（使用已有数据）')
+        return admin, [], []
 
     # ─────────────────────────────────────────────────────────
     def _create_students(self):
@@ -185,8 +194,9 @@ class Command(BaseCommand):
         class_students = {}
         sid_counter = 20240001
 
-        for grade_year, _ in GRADES:
-            for cls_num in range(1, CLASSES_PER_GRADE + 1):
+        for grade_year, n_class in GRADES:
+            class_count = n_class  # 每个年级独立的班级数
+            for cls_num in range(1, class_count + 1):
                 class_name = f'{grade_year}{cls_num}班'
                 students = []
                 male_pool = random.sample(MALE_NAMES, 15)
@@ -217,21 +227,11 @@ class Command(BaseCommand):
     def _create_meets(self, admin):
         from events.models import SportsMeet
         meets_data = [
-            dict(session=1, name='第一届校园运动会', school='示范中学',
-                 start_date=date(2024, 10, 15), end_date=date(2024, 10, 16),
-                 registration_deadline=timezone.make_aware(datetime(2024, 10, 8, 18, 0)),
-                 status='finished', max_events_per_person=3,
-                 description='首届校园运动会，圆满完成'),
-            dict(session=2, name='第二届校园运动会', school='示范中学',
-                 start_date=date(2025, 10, 20), end_date=date(2025, 10, 21),
-                 registration_deadline=timezone.make_aware(datetime(2025, 10, 13, 18, 0)),
-                 status='finished', max_events_per_person=3,
-                 description='第二届运动会，参与人数创历史新高'),
-            dict(session=3, name='第三届校园运动会', school='示范中学',
-                 start_date=date(2026, 10, 19), end_date=date(2026, 10, 20),
-                 registration_deadline=timezone.make_aware(datetime(2026, 10, 12, 18, 0)),
+            dict(session=3, name='重庆八中腾芳中学第三届田径运动会', school='重庆八中腾芳中学',
+                 start_date=date(2026, 5, 15), end_date=date(2026, 5, 15),
+                 registration_deadline=timezone.make_aware(datetime(2026, 5, 14, 18, 0)),
                  status='registration', max_events_per_person=3,
-                 description='第三届运动会，正在报名中'),
+                 description='2026年5月15日 腾芳中学田径场'),
         ]
         meets = []
         for data in meets_data:
@@ -253,7 +253,31 @@ class Command(BaseCommand):
                 hour=8, minute=0, tzinfo=timezone.get_current_timezone()
             )
             time_cursor = base_time
-            for tpl in EVENTS_TEMPLATE:
+
+            # 按年级创建项目
+            for grade in IN_SCHOOL_GRADES:
+                for tpl in PER_GRADE_EVENTS:
+                    name, etype, gender, unit, stage, mpc, tsize, mult = tpl
+                    ev_name = f'{grade}{name}'
+                    ev, _ = Event.objects.get_or_create(
+                        sports_meet=meet, name=ev_name,
+                        defaults=dict(
+                            event_type=etype, gender=gender,
+                            result_unit=unit, stage_type=stage,
+                            max_per_class=mpc, team_size=tsize,
+                            score_multiplier=mult,
+                            score_rules=SCORE_RULES,
+                            referee=random.choice(referees) if referees else None,
+                            confrontation_format='bo3' if etype == 'team_confrontation' else '',
+                            grade=grade,
+                        )
+                    )
+                    _create_schedule(ev, stage, time_cursor)
+                    time_cursor += timedelta(minutes=15)
+                    evs.append(ev)
+
+            # 全校混赛项目
+            for tpl in MIXED_EVENTS:
                 name, etype, gender, unit, stage, mpc, tsize, mult = tpl
                 ev, _ = Event.objects.get_or_create(
                     sports_meet=meet, name=name,
@@ -263,26 +287,14 @@ class Command(BaseCommand):
                         max_per_class=mpc, team_size=tsize,
                         score_multiplier=mult,
                         score_rules=SCORE_RULES,
-                        referee=random.choice(referees),
-                        confrontation_format='bo3' if etype == 'team_confrontation' else '',
+                        referee=random.choice(referees) if referees else None,
+                        grade='',
                     )
                 )
-                # 赛程
-                stages = ['final']
-                if stage == 'two':
-                    stages = ['preliminary', 'final']
-                elif stage == 'three':
-                    stages = ['preliminary', 'semifinal', 'final']
-                for si, stg in enumerate(stages):
-                    Schedule.objects.get_or_create(
-                        event=ev, stage=stg, group_number=1,
-                        defaults=dict(
-                            scheduled_time=time_cursor + timedelta(hours=si + random.randint(0, 2)),
-                            venue=random.choice(VENUES),
-                        )
-                    )
+                _create_schedule(ev, stage, time_cursor)
                 time_cursor += timedelta(minutes=30)
                 evs.append(ev)
+
             events_by_meet[meet.id] = evs
             self.stdout.write(f'  {meet.name}：{len(evs)}个项目')
         return events_by_meet
@@ -303,9 +315,15 @@ class Command(BaseCommand):
                 is_team = ev.event_type in ('relay', 'team_confrontation')
                 gender_filter = ev.gender  # male / female / mixed
 
+                # 年级隔离：只面向该年级的班级
+                if ev.grade:
+                    target_classes = [c for c in in_school_classes if c.startswith(ev.grade)]
+                else:
+                    target_classes = in_school_classes
+
                 if is_team:
                     # 团体报名：每个班报一个队
-                    for cls in in_school_classes:
+                    for cls in target_classes:
                         students = class_students[cls]
                         if gender_filter == 'male':
                             pool = [s for s in students if s.gender == 'male']
@@ -317,14 +335,14 @@ class Command(BaseCommand):
                             continue
                         tr, _ = TeamRegistration.objects.get_or_create(
                             event=ev, class_name=cls,
-                            defaults=dict(submitted_by=admin, status='approved')
+                            defaults=dict(submitted_by=admin, status='submitted')
                         )
                         if ev.team_size > 0:
                             members = random.sample(pool, min(ev.team_size, len(pool)))
                             tr.members.set(members)
                 else:
-                    # 个人报名：每班最多 max_per_class 人，且每人不超过3项
-                    for cls in in_school_classes:
+                    # 个人报名：每班最多 max_per_class 人
+                    for cls in target_classes:
                         students = class_students[cls]
                         if gender_filter == 'male':
                             pool = [s for s in students if s.gender == 'male']
@@ -341,7 +359,7 @@ class Command(BaseCommand):
                         for student in chosen:
                             Registration.objects.get_or_create(
                                 event=ev, student=student,
-                                defaults=dict(submitted_by=admin, status='approved',
+                                defaults=dict(submitted_by=admin, status='submitted',
                                               lane=random.randint(1, 8))
                             )
                             person_used[student.id] = person_used.get(student.id, 0) + 1
@@ -357,8 +375,12 @@ class Command(BaseCommand):
         from scores.models import Score, TeamScore, ConfrontationRound, ClassPoints
 
         for meet in meets:
-            if meet.status == 'registration':
-                continue  # 报名中的不录成绩
+            if meet.status in ('registration', 'ongoing'):
+                continue  # 报名中/进行中不自动生成成绩
+
+            # 历史赛事：自动审核报名后生成成绩
+            Registration.objects.filter(event__sports_meet=meet, status='submitted').update(status='approved')
+            TeamRegistration.objects.filter(event__sports_meet=meet, status='submitted').update(status='approved')
 
             evs = events_by_meet[meet.id]
             class_points_map = {}  # class_name -> {total, gold, silver, bronze}
@@ -437,20 +459,34 @@ class Command(BaseCommand):
                     reverse = ev.result_unit in ('meter', 'count')
                     results.sort(key=lambda x: x[2] if x[2] is not None else 0, reverse=reverse)
 
+                    is_two_stage = ev.stage_type == 'two'
+
                     for rank, (reg, result_str, result_num) in enumerate(results, 1):
                         pts = SCORE_RULES.get(rank, 0) * ev.score_multiplier
-                        Score.objects.get_or_create(
-                            registration=reg, stage='final',
-                            defaults=dict(rank=rank, result=result_str,
-                                          result_numeric=result_num, points=pts,
-                                          recorded_by=admin)
-                        )
-                        cls = reg.student.class_name
-                        _cp = class_points_map.setdefault(cls, {'total': 0, 'gold': 0, 'silver': 0, 'bronze': 0})
-                        _cp['total'] += pts
-                        if rank == 1: _cp['gold'] += 1
-                        elif rank == 2: _cp['silver'] += 1
-                        elif rank == 3: _cp['bronze'] += 1
+
+                        if is_two_stage:
+                            # 预赛成绩：仅生成预赛，等管理员手动晋级
+                            Score.objects.get_or_create(
+                                registration=reg, stage='preliminary',
+                                defaults=dict(rank=rank, result=result_str,
+                                              result_numeric=result_num, points=0,
+                                              recorded_by=admin)
+                            )
+                            # 不生成决赛成绩 —— 等"拉通前6晋级"按钮触发
+                        else:
+                            # 直接决赛
+                            Score.objects.get_or_create(
+                                registration=reg, stage='final',
+                                defaults=dict(rank=rank, result=result_str,
+                                              result_numeric=result_num, points=pts,
+                                              recorded_by=admin)
+                            )
+                            cls = reg.student.class_name
+                            _cp = class_points_map.setdefault(cls, {'total': 0, 'gold': 0, 'silver': 0, 'bronze': 0})
+                            _cp['total'] += pts
+                            if rank == 1: _cp['gold'] += 1
+                            elif rank == 2: _cp['silver'] += 1
+                            elif rank == 3: _cp['bronze'] += 1
 
             # 写入班级积分汇总
             sorted_classes = sorted(class_points_map.keys(),

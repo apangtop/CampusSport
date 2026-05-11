@@ -76,9 +76,10 @@ class ConfrontationRound(models.Model):
 
 
 class ClassPoints(models.Model):
-    """班级积分汇总（按运动会）"""
+    """班级积分汇总（按运动会+年级+班级）"""
     sports_meet = models.ForeignKey('events.SportsMeet', on_delete=models.CASCADE, related_name='class_points', verbose_name='运动会')
     class_name = models.CharField('班级', max_length=50)
+    grade = models.CharField('年级', max_length=20, blank=True, help_text='留空=全校总榜')
     total_points = models.FloatField('总积分', default=0)
     gold_medals = models.PositiveIntegerField('金牌数', default=0)
     silver_medals = models.PositiveIntegerField('银牌数', default=0)
@@ -89,7 +90,7 @@ class ClassPoints(models.Model):
     class Meta:
         verbose_name = '班级积分'
         verbose_name_plural = '班级积分'
-        unique_together = [('sports_meet', 'class_name')]
+        unique_together = [('sports_meet', 'class_name', 'grade')]
         ordering = ['-total_points']
 
     def __str__(self):

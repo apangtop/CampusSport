@@ -18,7 +18,7 @@ from openpyxl.styles import Font as XFont, Alignment as XAlignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from events.models import SportsMeet, Event, Schedule
-from registration.models import Registration
+from registration.models import Registration, TeamRegistration
 from scores.models import Score, ClassPoints
 from .models import Report
 
@@ -241,13 +241,16 @@ def build_order_book_word(sports_meet):
     # ══════════════════════════════════════
     #  各项目参赛名单
     # ══════════════════════════════════════
+    is_track = lambda e: e.event_type == 'track'
+    is_field = lambda e: e.event_type in ('field', 'fun_individual')
+    is_team = lambda e: e.event_type in ('relay', 'team_confrontation')
+
     for event in events:
         # 项目标题
         add_heading_para(doc, f'▶  {event.name}', font_size=14)
 
         # 项目信息行
         referee_name = event.referee.real_name if event.referee else '待定'
-        # 汇总赛程时间、场地
         scheds = event.schedules.all()
         times = [s.scheduled_time.strftime('%m/%d %H:%M') for s in scheds if s.scheduled_time]
         venues = list(set(s.venue for s in scheds if s.venue))
@@ -256,6 +259,7 @@ def build_order_book_word(sports_meet):
 
         info_parts = [
             f'性别：{event.get_gender_display()}',
+            f'年级：{event.grade or "全校"}',
             f'成绩单位：{event.get_result_unit_display()}',
             f'赛制：{event.get_stage_type_display()}',
             f'比赛时间：{time_str}',
@@ -270,46 +274,94 @@ def build_order_book_word(sports_meet):
             run.font.size = Pt(10)
             run.font.color.rgb = RGBColor(80, 80, 80)
 
-        # 获取报名数据，按赛程分组
-        registrations = Registration.objects.filter(
-            event=event, status__in=['submitted', 'approved']
-        ).select_related('student', 'schedule').order_by('schedule__group_number', 'lane', 'student__class_name')
+        # ── 按项目类型处理 ──
+        if is_team(event):
+            # 团体项目：每队一行
+            teams = TeamRegistration.objects.filter(
+                event=event, status__in=['submitted', 'approved']
+            ).prefetch_related('members').order_by('lane', 'class_name')
 
-        # 预取所有成绩，避免 N+1 查询
-        reg_ids = [r.id for r in registrations]
-        score_map = {
-            s.registration_id: s
-            for s in Score.objects.filter(registration_id__in=reg_ids, stage='final')
-        }
+            if not teams:
+                doc.add_paragraph('  暂无团体报名')
+                doc.add_page_break()
+                continue
 
-        # 按 schedule 分组
-        groups = {}
-        no_sch_regs = []
-        for reg in registrations:
-            if reg.schedule:
-                key = reg.schedule.id
-                if key not in groups:
-                    groups[key] = {'schedule': reg.schedule, 'regs': []}
-                groups[key]['regs'].append(reg)
-            else:
-                no_sch_regs.append(reg)
+            sub_title = f'【{event.get_stage_type_display()}】'
+            sp = doc.add_paragraph(sub_title)
+            sp.paragraph_format.space_after = Pt(4)
+            for run in sp.runs:
+                run.font.name = '微软雅黑'
+                run._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
+                run.font.size = Pt(10)
+                run.font.bold = True
 
-        all_groups = list(groups.values())
-        if no_sch_regs:
-            all_groups.append({'schedule': None, 'regs': no_sch_regs})
+            headers = ['道次', '班级', '队员', '成绩', '名次']
+            widths = [1.5, 3.0, 6.0, 2.5, 2.0]
+            table = doc.add_table(rows=1 + len(teams), cols=len(headers))
+            table.alignment = WD_TABLE_ALIGNMENT.CENTER
+            set_table_style(table)
+            for ci, (h, w) in enumerate(zip(headers, widths)):
+                cell = table.cell(0, ci)
+                cell.width = Cm(w)
+                set_cell_bg(cell, '2C3E50')
+                add_cell_text(cell, h, bold=True, font_size=10, color=(255, 255, 255))
+            for ri, t in enumerate(teams, 1):
+                bg = 'F8F9FA' if ri % 2 == 0 else 'FFFFFF'
+                members_str = '、'.join([m.name for m in t.members.all()])
+                row_data = [t.lane or '', t.class_name, members_str, '', '']
+                for ci, val in enumerate(row_data):
+                    cell = table.cell(ri, ci)
+                    cell.width = Cm(widths[ci])
+                    set_cell_bg(cell, bg)
+                    add_cell_text(cell, val, font_size=10)
 
-        if not all_groups:
-            p = doc.add_paragraph('  暂无报名人员')
-            p.paragraph_format.space_after = Pt(8)
         else:
+            # 个人项目
+            registrations = list(Registration.objects.filter(
+                event=event, status__in=['submitted', 'approved']
+            ).select_related('student', 'schedule').order_by('schedule__group_number', 'lane', 'student__class_name'))
+
+            if not registrations:
+                doc.add_paragraph('  暂无报名人员')
+                doc.add_page_break()
+                continue
+
+            reg_ids = [r.id for r in registrations]
+            score_map = {
+                s.registration_id: s
+                for s in Score.objects.filter(registration_id__in=reg_ids, stage='final')
+            }
+
+            # 按 schedule 分组
+            groups = {}
+            no_sch_regs = []
+            for reg in registrations:
+                if reg.schedule:
+                    key = reg.schedule.id
+                    if key not in groups:
+                        groups[key] = {'schedule': reg.schedule, 'regs': []}
+                    groups[key]['regs'].append(reg)
+                else:
+                    no_sch_regs.append(reg)
+            all_groups = list(groups.values())
+            if no_sch_regs:
+                all_groups.append({'schedule': None, 'regs': no_sch_regs})
+
+            # 表头：径赛=道次，田赛=序号
+            if is_track(event):
+                headers = ['道次', '姓名', '班级', '成绩', '名次']
+                widths = [1.5, 2.8, 4.0, 3.0, 2.0]
+            else:
+                headers = ['序号', '姓名', '班级', '成绩', '名次']
+                widths = [1.5, 2.8, 4.0, 3.0, 2.0]
+
             for grp in all_groups:
                 sch = grp['schedule']
                 grp_regs = grp['regs']
 
-                # 组次信息子标题
                 if sch:
-                    time_str = sch.scheduled_time.strftime('%Y-%m-%d %H:%M') if sch.scheduled_time else '时间待定'
-                    sub_title = f'【{sch.get_stage_display()} 第{sch.group_number}组】  {time_str}  {sch.venue or ""}'
+                    t = sch.scheduled_time.strftime('%m/%d %H:%M') if sch.scheduled_time else '待定'
+                    sub_title = f'【{sch.get_stage_display()} 第{sch.group_number}组】  {t}  {sch.venue or ""}'
                 else:
                     sub_title = '【参赛名单】'
 
@@ -323,33 +375,26 @@ def build_order_book_word(sports_meet):
                     run.font.bold = True
                     run.font.color.rgb = RGBColor(44, 62, 80)
 
-                # 参赛名单表
-                reg_headers = ['道次', '姓名', '班级', '成绩', '名次']
-                reg_widths = [2.0, 2.8, 4.0, 3.0, 2.0]
-
-                reg_table = doc.add_table(rows=1 + len(grp_regs), cols=len(reg_headers))
+                reg_table = doc.add_table(rows=1 + len(grp_regs), cols=len(headers))
                 reg_table.alignment = WD_TABLE_ALIGNMENT.CENTER
                 set_table_style(reg_table)
-
-                for col_idx, (h, w) in enumerate(zip(reg_headers, reg_widths)):
-                    cell = reg_table.cell(0, col_idx)
+                for ci, (h, w) in enumerate(zip(headers, widths)):
+                    cell = reg_table.cell(0, ci)
                     cell.width = Cm(w)
                     set_cell_bg(cell, '2C3E50')
                     add_cell_text(cell, h, bold=True, font_size=10, color=(255, 255, 255))
-
-                for r_idx, reg in enumerate(grp_regs, 1):
-                    score_obj = score_map.get(reg.id)
-                    result_val = score_obj.result if score_obj else ''
-                    rank_val = f'第{score_obj.rank}名' if (score_obj and score_obj.rank) else ''
-                    bg = 'F8F9FA' if r_idx % 2 == 0 else 'FFFFFF'
-                    row_data = [reg.lane or '', reg.student.name,
-                                reg.student.class_name, result_val, rank_val]
-                    for col_idx, val in enumerate(row_data):
-                        cell = reg_table.cell(r_idx, col_idx)
-                        cell.width = Cm(reg_widths[col_idx])
+                for ri, reg in enumerate(grp_regs, 1):
+                    s = score_map.get(reg.id)
+                    bg = 'F8F9FA' if ri % 2 == 0 else 'FFFFFF'
+                    row_data = [
+                        reg.lane or '', reg.student.name, reg.student.class_name,
+                        s.result if s else '', f'第{s.rank}名' if (s and s.rank) else ''
+                    ]
+                    for ci, val in enumerate(row_data):
+                        cell = reg_table.cell(ri, ci)
+                        cell.width = Cm(widths[ci])
                         set_cell_bg(cell, bg)
                         add_cell_text(cell, val, font_size=10)
-
                 doc.add_paragraph()
 
         doc.add_page_break()
@@ -362,7 +407,7 @@ def build_order_book_word(sports_meet):
 
     rules_headers = ['名次', '积分']
     rules_widths = [4.0, 4.0]
-    rules_data = [(1, 7), (2, 5), (3, 4), (4, 3), (5, 2), (6, 1), ('第7名及以后', 0)]
+    rules_data = [(1, 4), (2, 3), (3, 2), (4, 1), ('第5名及以后', 0)]
 
     rules_table = doc.add_table(rows=1 + len(rules_data), cols=2)
     rules_table.alignment = WD_TABLE_ALIGNMENT.CENTER

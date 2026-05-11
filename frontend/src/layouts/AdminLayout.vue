@@ -1,12 +1,15 @@
 <template>
   <el-container class="app-layout">
-    <el-aside :width="collapsed ? '64px' : '220px'" class="sidebar">
+    <!-- 移动端遮罩 -->
+    <div v-if="isMobile && !collapsed" class="mobile-overlay" @click="collapsed = true" />
+
+    <el-aside :width="collapsed ? '0px' : '220px'" class="sidebar">
       <div class="logo-area" @click="collapsed = !collapsed">
         <span class="logo-icon">🏃</span>
-        <span v-if="!collapsed" class="logo-text">CampusSport</span>
+        <span class="logo-text">CampusSport</span>
       </div>
       <el-menu :router="true" :default-active="$route.path" background-color="#001529"
-        text-color="#ffffffa6" active-text-color="#fff" :collapse="collapsed">
+        text-color="#ffffffa6" active-text-color="#fff">
         <el-menu-item index="/admin/dashboard">
           <el-icon><HomeFilled /></el-icon><template #title>首页</template>
         </el-menu-item>
@@ -27,7 +30,11 @@
     <el-container>
       <el-header class="app-header">
         <div class="header-left">
-          <el-breadcrumb separator="/">
+          <el-icon v-if="isMobile" class="menu-toggle" :size="22" @click="collapsed = !collapsed">
+            <Expand v-if="collapsed" /><Fold v-else />
+          </el-icon>
+          <span class="header-title" v-if="isMobile && collapsed">CampusSport</span>
+          <el-breadcrumb v-if="!isMobile" separator="/">
             <el-breadcrumb-item :to="{ path: '/admin/dashboard' }">首页</el-breadcrumb-item>
             <el-breadcrumb-item v-if="currentMeetName">{{ currentMeetName }}</el-breadcrumb-item>
           </el-breadcrumb>
@@ -35,16 +42,16 @@
         <div class="header-right">
           <el-dropdown @command="handleCommand">
             <span class="user-info">
-              <el-avatar :size="32" style="background:#1a6db5">
+              <el-avatar :size="30" style="background:#1a6db5">
                 {{ auth.user?.real_name?.charAt(0) || 'A' }}
               </el-avatar>
-              <span>{{ auth.user?.real_name || auth.user?.username }}</span>
-              <el-tag size="small" type="warning">体育老师</el-tag>
-              <el-icon><ArrowDown /></el-icon>
+              <span class="user-name">{{ auth.user?.real_name || auth.user?.username }}</span>
+              <el-tag v-if="!isMobile" size="small" type="warning">体育老师</el-tag>
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="changePassword">修改密码</el-dropdown-item><el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                <el-dropdown-item command="changePassword">修改密码</el-dropdown-item>
+                <el-dropdown-item command="logout">退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -60,21 +67,33 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
+import { Expand, Fold } from '@element-plus/icons-vue'
 
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
-const collapsed = ref(false)
+const collapsed = ref(window.innerWidth < 768)
+const isMobile = ref(window.innerWidth < 768)
+
+function onResize() {
+  isMobile.value = window.innerWidth < 768
+  if (isMobile.value) collapsed.value = true
+  else collapsed.value = false
+}
+
+onMounted(() => window.addEventListener('resize', onResize))
+onUnmounted(() => window.removeEventListener('resize', onResize))
 
 const currentMeetName = computed(() => route.meta?.meetName || '')
 
 function handleCommand(cmd) {
   if (cmd === 'changePassword') {
     router.push('/admin/change-password')
+    if (isMobile.value) collapsed.value = true
   } else if (cmd === 'logout') {
     ElMessageBox.confirm('确认退出登录？', '提示', { type: 'warning' }).then(() => {
       auth.logout()
@@ -86,7 +105,15 @@ function handleCommand(cmd) {
 
 <style scoped>
 .app-layout { height: 100vh; }
-.sidebar { background: #001529; transition: width 0.2s; overflow: hidden; }
+.sidebar {
+  background: #001529; transition: width 0.2s;
+  overflow: hidden; z-index: 100;
+  position: relative;
+}
+.mobile-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+  z-index: 99;
+}
 .logo-area {
   height: 64px; display: flex; align-items: center; justify-content: center;
   cursor: pointer; border-bottom: 1px solid #ffffff15; gap: 10px;
@@ -97,8 +124,19 @@ function handleCommand(cmd) {
 .app-header {
   background: #fff; display: flex; align-items: center;
   justify-content: space-between; border-bottom: 1px solid #f0f0f0;
-  padding: 0 24px; box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  padding: 0 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); height: 56px;
 }
-.user-info { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.app-main { background: #f5f7fa; padding: 20px; overflow-y: auto; }
+.menu-toggle { cursor: pointer; color: #333; margin-right: 10px; }
+.header-title { font-weight: 600; font-size: 15px; }
+.user-info { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.app-main { background: #f5f7fa; padding: 12px; overflow-y: auto; }
+
+@media (min-width: 768px) {
+  .app-header { padding: 0 24px; height: 60px; }
+  .app-main { padding: 20px; }
+}
+@media (max-width: 767px) {
+  .sidebar { position: fixed; left: 0; top: 0; bottom: 0; }
+  .user-name { display: none; }
+}
 </style>

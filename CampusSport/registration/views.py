@@ -1,4 +1,5 @@
 from rest_framework import viewsets, status, permissions
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
@@ -57,39 +58,70 @@ class StudentViewSet(viewsets.ModelViewSet):
             return [IsAdminOrTeacher()]
         return [permissions.IsAuthenticated()]
 
+    def perform_create(self, serializer):
+        user = self.request.user
+        if user.role == 'teacher':
+            class_name = serializer.validated_data.get('class_name', '')
+            if class_name != user.class_name:
+                raise PermissionDenied('只能添加本班学生')
+        serializer.save()
+
     @action(detail=False, methods=['post'], permission_classes=[IsAdminOrTeacher])
     def import_excel(self, request):
         """从 Excel 批量导入学生"""
         file = request.FILES.get('file')
         if not file:
             return Response({'detail': '请上传Excel文件'}, status=status.HTTP_400_BAD_REQUEST)
-        class_name = request.data.get('class_name') or request.user.class_name
-        if not class_name:
-            return Response({'detail': '请指定班级'}, status=status.HTTP_400_BAD_REQUEST)
+        default_class = request.data.get('class_name') or request.user.class_name or ''
         try:
             wb = openpyxl.load_workbook(file)
             ws = wb.active
         except Exception:
             return Response({'detail': '文件格式错误，请上传xlsx文件'}, status=status.HTTP_400_BAD_REQUEST)
 
+        def cell(row, idx, default=''):
+            """安全读取单元格，None → 空字符串"""
+            v = row[idx] if len(row) > idx else None
+            return str(v).strip() if v is not None else default
+
         created, updated, errors = [], [], []
+        import re
         for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
             if not row or not row[0]:
                 continue
-            name = str(row[0]).strip()
-            gender_raw = str(row[1]).strip() if len(row) > 1 and row[1] else '男'
-            student_id = str(row[2]).strip() if len(row) > 2 and row[2] else ''
-            grade = str(row[3]).strip() if len(row) > 3 and row[3] else ''
-            gender = 'male' if gender_raw in ['男', 'male', 'M', 'm'] else 'female'
-
+            name = cell(row, 0)
             if not name:
                 errors.append(f'第{row_idx}行：姓名为空')
                 continue
+            gender_raw = cell(row, 1, '男')
+            student_id = cell(row, 2)
+            grade = cell(row, 3)
+            row_class = cell(row, 4)
+            gender = 'male' if gender_raw in ['男', 'male', 'M', 'm'] else 'female'
 
-            obj, is_created = Student.objects.update_or_create(
-                name=name, class_name=class_name,
-                defaults={'gender': gender, 'student_id': student_id, 'grade': grade}
-            )
+            # 如果 Excel 行中没指定班级，使用请求中的默认班级
+            student_class = row_class or default_class
+            if not student_class:
+                errors.append(f'第{row_idx}行：未指定班级')
+                continue
+
+            # 自动从班级名提取年级（如 2028级1班 → 2028级）
+            if not grade and student_class:
+                match = re.match(r'(\d{4}级)', student_class)
+                if match:
+                    grade = match.group(1)
+
+            # 优先用学号+班级匹配，否则用姓名+班级
+            if student_id:
+                obj, is_created = Student.objects.update_or_create(
+                    student_id=student_id, class_name=student_class,
+                    defaults={'name': name, 'gender': gender, 'grade': grade}
+                )
+            else:
+                obj, is_created = Student.objects.update_or_create(
+                    name=name, class_name=student_class,
+                    defaults={'gender': gender, 'student_id': student_id, 'grade': grade}
+                )
             (created if is_created else updated).append(name)
 
         return Response({
@@ -105,12 +137,12 @@ class StudentViewSet(viewsets.ModelViewSet):
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = '学生名单'
-        headers = ['姓名*', '性别(男/女)*', '学号', '年级']
+        headers = ['姓名', '性别(男/女)', '学号', '年级', '班级']
         for col, h in enumerate(headers, 1):
             ws.cell(row=1, column=col, value=h)
         # 示例数据
-        ws.append(['张三', '男', '2024001', '初一'])
-        ws.append(['李四', '女', '2024002', '初一'])
+        ws.append(['张三', '男', '2024001', '2028级', '2028级1班'])
+        ws.append(['李四', '女', '2024002', '2028级', '2028级1班'])
 
         buffer = io.BytesIO()
         wb.save(buffer)
@@ -159,6 +191,11 @@ class RegistrationViewSet(viewsets.ModelViewSet):
     queryset = Registration.objects.select_related('student', 'event', 'submitted_by', 'schedule').all()
     permission_classes = [permissions.IsAuthenticated]
 
+    def get_permissions(self):
+        if self.action == 'destroy':
+            return [IsAdmin()]
+        return [permissions.IsAuthenticated()]
+
     def get_serializer_class(self):
         if self.action == 'retrieve':
             return RegistrationDetailSerializer
@@ -177,7 +214,10 @@ class RegistrationViewSet(viewsets.ModelViewSet):
             qs = qs.filter(event_id=event_id)
         class_name = self.request.query_params.get('class_name')
         if class_name:
-            qs = qs.filter(student__class_name=class_name)
+            if class_name.endswith('级') and not class_name.endswith('班'):
+                qs = qs.filter(student__class_name__startswith=class_name)
+            else:
+                qs = qs.filter(student__class_name=class_name)
         status_filter = self.request.query_params.get('status')
         if status_filter:
             qs = qs.filter(status=status_filter)
@@ -188,6 +228,11 @@ class RegistrationViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(submitted_by=self.request.user)
+
+    def perform_destroy(self, instance):
+        if instance.event.sports_meet.status in ('ongoing', 'finished'):
+            raise PermissionDenied('进行中或已结束的运动会不能删除报名')
+        instance.delete()
 
     def _check_teacher_permission(self, registration):
         user = self.request.user
@@ -256,6 +301,11 @@ class RegistrationViewSet(viewsets.ModelViewSet):
                         errors.append(f'{student.name} 性别不符（项目要求{event.get_gender_display()}）')
                         continue
 
+                    # 检查年级匹配
+                    if event.grade and student.grade != event.grade:
+                        errors.append(f'{student.name} 年级不符（项目要求{event.grade}，学生为{student.grade}）')
+                        continue
+
                     # 检查每人报名项目数：以 event.max_per_person 为准，meet 上限兜底
                     per_event_cap = event.max_per_person or meet.max_events_per_person
                     person_count = Registration.objects.filter(
@@ -271,6 +321,11 @@ class RegistrationViewSet(viewsets.ModelViewSet):
                         defaults={'submitted_by': user, 'status': 'submitted'}
                     )
                     if created_flag:
+                        created.append(student.name)
+                    elif reg.status == 'cancelled':
+                        reg.status = 'submitted'
+                        reg.submitted_by = user
+                        reg.save()
                         created.append(student.name)
                 except Student.DoesNotExist:
                     errors.append(f'学生ID {student_id} 不存在')
@@ -291,6 +346,18 @@ class RegistrationViewSet(viewsets.ModelViewSet):
         reg.save()
         return Response({'detail': '已拒绝'})
 
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminOrTeacher])
+    def cancel(self, request, pk=None):
+        reg = self.get_object()
+        user = request.user
+        if user.role == 'teacher' and reg.student.class_name != user.class_name:
+            return Response({'detail': '只能取消本班报名'}, status=status.HTTP_403_FORBIDDEN)
+        if reg.event.sports_meet.status not in ('registration',) and user.role != 'admin':
+            return Response({'detail': '报名已截止，无法取消'}, status=status.HTTP_400_BAD_REQUEST)
+        reg.status = 'cancelled'
+        reg.save()
+        return Response({'detail': '已取消报名'})
+
     @action(detail=False, methods=['post'], permission_classes=[IsAdmin])
     def approve_all(self, request):
         """一键审核所有提交的报名"""
@@ -307,6 +374,13 @@ class TeamRegistrationViewSet(viewsets.ModelViewSet):
     serializer_class = TeamRegistrationSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return [IsAdminOrTeacher()]
+        if self.action == 'destroy':
+            return [IsAdmin()]
+        return [permissions.IsAuthenticated()]
+
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
@@ -320,4 +394,13 @@ class TeamRegistrationViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        serializer.save(submitted_by=self.request.user)
+        user = self.request.user
+        class_name = serializer.validated_data.get('class_name', '')
+        if user.role == 'teacher' and class_name != user.class_name:
+            raise PermissionDenied('只能为本班报名团体项目')
+        serializer.save(submitted_by=user)
+
+    def perform_destroy(self, instance):
+        if instance.event.sports_meet.status in ('ongoing', 'finished'):
+            raise PermissionDenied('进行中或已结束的运动会不能删除团体报名')
+        instance.delete()

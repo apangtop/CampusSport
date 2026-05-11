@@ -21,6 +21,12 @@
         <el-table-column prop="gender" label="性别" width="70" align="center">
           <template #default="{ row }">{{ genderLabel(row.gender) }}</template>
         </el-table-column>
+        <el-table-column prop="grade" label="年级" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.grade" size="small" type="warning">{{ row.grade }}</el-tag>
+            <el-tag v-else size="small" type="info">全校</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="result_unit" label="成绩单位" width="90" align="center">
           <template #default="{ row }">{{ unitLabel(row.result_unit) }}</template>
         </el-table-column>
@@ -58,6 +64,14 @@
                 <el-option label="男" value="male" />
                 <el-option label="女" value="female" />
                 <el-option label="混合" value="mixed" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="参赛年级">
+              <el-select v-model="form.grade" style="width:100%" clearable placeholder="留空=全校混赛">
+                <el-option label="全校混赛" value="" />
+                <el-option label="2028级（初一）" value="2028级" />
+                <el-option label="2027级（初二）" value="2027级" />
+                <el-option label="2026级（初三）" value="2026级" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -143,7 +157,7 @@ const editId = ref(null)
 const formRef = ref()
 const filterType = ref('')
 
-const defaultScoreRules = () => ({ 1: 7, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1 })
+const defaultScoreRules = () => ({ 1: 4, 2: 3, 3: 2, 4: 1 })
 const scoreRules = reactive(defaultScoreRules())
 
 const typeOptions = [
@@ -162,7 +176,7 @@ const stageLabel = s => stageMap[s] || s
 
 const defaultForm = () => ({
   sports_meet: meetId, name: '', event_type: 'track', gender: 'male',
-  result_unit: 'second', stage_type: 'single', advance_per_group: 2,
+  grade: '', result_unit: 'second', stage_type: 'single', advance_per_group: 2,
   advance_wildcard: 1, max_per_class: 2,
   team_size: 0, referee: null, score_multiplier: 1.0, score_rules: {}
 })

@@ -13,12 +13,13 @@ class StudentSerializer(serializers.ModelSerializer):
 class RegistrationSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
     student_class = serializers.CharField(source='student.class_name', read_only=True)
+    student_gender = serializers.CharField(source='student.gender', read_only=True)
     event_name = serializers.CharField(source='event.name', read_only=True)
 
     class Meta:
         model = Registration
         fields = '__all__'
-        read_only_fields = ['id', 'submitted_by', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'submitted_by', 'created_at', 'updated_at', 'status']
 
     def create(self, validated_data):
         request = self.context.get('request')
@@ -48,6 +49,8 @@ class RegistrationDetailSerializer(serializers.ModelSerializer):
 
 
 class TeamRegistrationSerializer(serializers.ModelSerializer):
+    members_detail = StudentSerializer(source='members', many=True, read_only=True)
+
     class Meta:
         model = TeamRegistration
         fields = '__all__'

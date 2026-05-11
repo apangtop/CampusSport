@@ -10,8 +10,7 @@
             </el-select>
             <el-select v-model="filterStage" style="width:120px" @change="loadParticipants">
               <el-option label="决赛" value="final" />
-              <el-option label="初赛" value="preliminary" />
-              <el-option label="半决赛" value="semifinal" />
+              <el-option v-if="currentEvent && currentEvent.stage_type !== 'single'" label="初赛" value="preliminary" />
             </el-select>
           </div>
         </div>
@@ -23,7 +22,7 @@
       </el-alert>
 
       <el-table :data="participants" v-loading="loading">
-        <el-table-column prop="lane" label="道次" width="70" align="center">
+        <el-table-column v-if="currentEvent" :label="needsLanes(currentEvent.event_type) ? '道次' : '序号'" width="70" align="center">
           <template #default="{ row }">{{ row.lane || '-' }}</template>
         </el-table-column>
         <el-table-column prop="student.name" label="姓名" width="100" />
@@ -58,6 +57,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { eventApi, scoreApi } from '@/api'
+import { needsLanes } from '@/utils/format'
 
 const route = useRoute()
 const myEvents = ref([])

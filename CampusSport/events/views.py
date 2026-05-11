@@ -42,6 +42,31 @@ class SportsMeetViewSet(viewsets.ModelViewSet):
         return Response(SportsMeetSerializer(meet).data)
 
     @action(detail=True, methods=['get'])
+    def score_summary(self, request, pk=None):
+        """各项目成绩录入完成度汇总"""
+        meet = self.get_object()
+        stage = request.query_params.get('stage', 'final')
+        from registration.models import Registration
+        from scores.models import Score
+        events = meet.events.all()
+        data = []
+        for ev in events:
+            total = Registration.objects.filter(
+                event=ev, status='approved'
+            ).count()
+            scored = Score.objects.filter(
+                registration__event=ev, stage=stage
+            ).count()
+            data.append({
+                'event_id': ev.id,
+                'event_name': ev.name,
+                'total': total,
+                'scored': scored,
+                'complete': total > 0 and scored >= total
+            })
+        return Response(data)
+
+    @action(detail=True, methods=['get'])
     def schedule_overview(self, request, pk=None):
         """赛程总览"""
         meet = self.get_object()
@@ -74,13 +99,16 @@ class EventViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         user = self.request.user
         if user.role == 'referee':
-            qs = qs.filter(referee=user)
+            qs = qs.filter(referee=user, sports_meet__status='ongoing')
         meet_id = self.request.query_params.get('sports_meet')
         if meet_id:
             qs = qs.filter(sports_meet_id=meet_id)
         event_type = self.request.query_params.get('type')
         if event_type:
             qs = qs.filter(event_type=event_type)
+        reg_status = self.request.query_params.get('reg_status')
+        if reg_status:
+            qs = qs.filter(registrations__status=reg_status).distinct()
         return qs
 
     @action(detail=True, methods=['get'])
@@ -101,7 +129,7 @@ class EventViewSet(viewsets.ModelViewSet):
         event = self.get_object()
         from registration.models import Registration, TeamRegistration
         from collections import defaultdict
-        lanes_per_group = int(request.data.get('lanes_per_group', 8))
+        lanes_per_group = int(request.data.get('lanes_per_group', 6))
         stage = request.data.get('stage', 'preliminary')
 
         is_team = event.event_type in ('relay', 'team_confrontation')
