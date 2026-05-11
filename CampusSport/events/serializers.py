@@ -1,0 +1,64 @@
+from rest_framework import serializers
+from .models import SportsMeet, Event, Schedule
+from accounts.serializers import UserSerializer
+
+
+class ScheduleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Schedule
+        fields = '__all__'
+        read_only_fields = ['id']
+
+
+class EventSerializer(serializers.ModelSerializer):
+    referee_info = UserSerializer(source='referee', read_only=True)
+    schedules = ScheduleSerializer(many=True, read_only=True)
+    registration_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Event
+        fields = '__all__'
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_registration_count(self, obj):
+        return obj.registrations.filter(status__in=['submitted', 'approved']).count()
+
+
+class EventListSerializer(serializers.ModelSerializer):
+    referee_name = serializers.CharField(source='referee.real_name', read_only=True, allow_null=True)
+    registration_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Event
+        fields = ['id', 'name', 'event_type', 'gender', 'result_unit', 'stage_type',
+                  'max_per_class', 'referee', 'referee_name',
+                  'score_multiplier', 'registration_count']
+
+    def get_registration_count(self, obj):
+        return obj.registrations.filter(status__in=['submitted', 'approved']).count()
+
+
+class SportsMeetSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source='created_by.real_name', read_only=True, allow_null=True)
+    event_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SportsMeet
+        fields = '__all__'
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by']
+
+    def get_event_count(self, obj):
+        return obj.events.count()
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        if request and request.user:
+            validated_data['created_by'] = request.user
+        return super().create(validated_data)
+
+
+class SportsMeetDetailSerializer(SportsMeetSerializer):
+    events = EventListSerializer(many=True, read_only=True)
+
+    class Meta(SportsMeetSerializer.Meta):
+        fields = SportsMeetSerializer.Meta.fields + ['events'] if SportsMeetSerializer.Meta.fields != '__all__' else '__all__'

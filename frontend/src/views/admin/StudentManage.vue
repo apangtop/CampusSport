@@ -1,0 +1,217 @@
+<template>
+  <div>
+    <el-card shadow="never">
+      <template #header>
+        <div class="card-header">
+          <span style="font-size:16px;font-weight:600">学生管理</span>
+          <div style="display:flex;gap:8px">
+            <el-button @click="downloadTemplate">下载导入模板</el-button>
+            <el-upload :before-upload="handleImport" :show-file-list="false" accept=".xlsx,.xls">
+              <el-button type="success">
+                <el-icon><Upload /></el-icon> Excel批量导入
+              </el-button>
+            </el-upload>
+            <el-button type="primary" :icon="Plus" @click="openDialog()">手动添加</el-button>
+          </div>
+        </div>
+      </template>
+
+      <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+        <el-input v-model="filterName" placeholder="搜索姓名" clearable style="width:160px" @input="load" />
+        <ClassSelector v-model="filterClass" @change="load" :clearable="true" />
+        <el-select v-model="filterGender" clearable placeholder="性别" style="width:90px" @change="load">
+          <el-option label="男" value="male" />
+          <el-option label="女" value="female" />
+        </el-select>
+        <el-button @click="clearFilter">重置</el-button>
+      </div>
+
+      <el-table :data="students" v-loading="loading">
+        <el-table-column prop="name" label="姓名" width="100" />
+        <el-table-column prop="gender" label="性别" width="70" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.gender === 'male' ? '' : 'danger'" size="small">
+              {{ row.gender === 'male' ? '男' : '女' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="class_name" label="班级" width="130" />
+        <el-table-column prop="grade" label="年级" width="100" />
+        <el-table-column prop="student_id" label="学号" min-width="120" />
+        <el-table-column label="操作" width="130" align="center">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openDialog(row)">编辑</el-button>
+            <el-button link type="danger" @click="deleteStudent(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div style="display:flex;justify-content:flex-end;margin-top:16px">
+        <el-pagination v-model:current-page="page" :page-size="pageSize"
+          :total="total" layout="total, prev, pager, next" @current-change="load" />
+      </div>
+    </el-card>
+
+    <!-- 导入结果提示 -->
+    <el-dialog v-model="importResultVisible" title="导入结果" width="400px">
+      <el-result :icon="importResult.errors?.length ? 'warning' : 'success'"
+        :title="importResult.detail">
+        <template #extra>
+          <div v-if="importResult.errors?.length">
+            <p style="color:#f56c6c" v-for="e in importResult.errors" :key="e">{{ e }}</p>
+          </div>
+        </template>
+      </el-result>
+      <template #footer>
+        <el-button type="primary" @click="importResultVisible = false; load()">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 添加/编辑弹窗 -->
+    <el-dialog v-model="dialogVisible" :title="editId ? '编辑学生' : '添加学生'" width="420px">
+      <el-form :model="form" :rules="rules" ref="formRef" label-width="80px">
+        <el-form-item label="姓名" prop="name">
+          <el-input v-model="form.name" />
+        </el-form-item>
+        <el-form-item label="性别" prop="gender">
+          <el-radio-group v-model="form.gender">
+            <el-radio label="male">男</el-radio>
+            <el-radio label="female">女</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="班级" prop="class_name">
+          <ClassSelector v-model="form.class_name" :clearable="false" />
+        </el-form-item>
+        <el-form-item label="学号">
+          <el-input v-model="form.student_id" placeholder="可选" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="save">确定</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+import { ref, reactive, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Upload } from '@element-plus/icons-vue'
+import { studentApi, importApi } from '@/api'
+import axios from 'axios'
+import ClassSelector from '@/components/ClassSelector.vue'
+
+const students = ref([])
+const loading = ref(false)
+const saving = ref(false)
+const dialogVisible = ref(false)
+const importResultVisible = ref(false)
+const importResult = ref({})
+const editId = ref(null)
+const formRef = ref()
+const filterName = ref('')
+const filterClass = ref('')
+const filterGender = ref('')
+const page = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
+
+const defaultForm = () => ({ name: '', gender: 'male', class_name: '', student_id: '' })
+
+function clearFilter() {
+  filterName.value = ''
+  filterClass.value = ''
+  filterGender.value = ''
+  load()
+}
+const form = reactive(defaultForm())
+const rules = {
+  name: [{ required: true, message: '请输入姓名' }],
+  gender: [{ required: true }],
+  class_name: [{ required: true, message: '请输入班级' }]
+}
+
+async function load() {
+  loading.value = true
+  const params = { page: page.value }
+  if (filterName.value) params.name = filterName.value
+  if (filterClass.value) params.class_name = filterClass.value
+  if (filterGender.value) params.gender = filterGender.value
+  const res = await studentApi.list(params)
+  students.value = res.results || res
+  total.value = res.count || students.value.length
+  loading.value = false
+}
+
+function openDialog(row) {
+  editId.value = row?.id || null
+  if (row) Object.assign(form, row)
+  else Object.assign(form, defaultForm())
+  dialogVisible.value = true
+}
+
+async function save() {
+  await formRef.value.validate()
+  saving.value = true
+  try {
+    // 从班级名称自动解析年级（如 "2026级3班" → grade="初三"）
+    const gradeMap = {
+      0: '初三', 1: '初二', 2: '初一'
+    }
+    const curYear = new Date().getFullYear()
+    const match = form.class_name?.match(/^(\d{4})级/)
+    let grade = ''
+    if (match) {
+      const diff = parseInt(match[1]) - curYear
+      grade = gradeMap[diff] || `${match[1]}级`
+    }
+    const data = { ...form, grade }
+    if (editId.value) {
+      await studentApi.update(editId.value, data)
+      ElMessage.success('更新成功')
+    } else {
+      await studentApi.create(data)
+      ElMessage.success('添加成功')
+    }
+    dialogVisible.value = false
+    load()
+  } finally {
+    saving.value = false
+  }
+}
+
+async function deleteStudent(row) {
+  await ElMessageBox.confirm(`确认删除学生「${row.name}」？`, '提示', { type: 'warning' })
+  await studentApi.delete(row.id)
+  ElMessage.success('已删除')
+  load()
+}
+
+async function handleImport(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await importApi.importExcel(formData)
+  importResult.value = res
+  importResultVisible.value = true
+  return false
+}
+
+async function downloadTemplate() {
+  const token = localStorage.getItem('access_token')
+  const res = await axios.get('/api/students/export_template/', {
+    headers: { Authorization: `Bearer ${token}` },
+    responseType: 'blob'
+  })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(new Blob([res.data]))
+  link.download = '学生导入模板.xlsx'
+  link.click()
+}
+
+onMounted(load)
+</script>
+
+<style scoped>
+.card-header { display: flex; justify-content: space-between; align-items: center; }
+</style>
