@@ -38,6 +38,16 @@ class EventSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['id', 'created_at', 'updated_at']
 
+    def validate_score_rules(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('积分规则必须是字典格式')
+        for k, v in value.items():
+            try:
+                float(v)
+            except (TypeError, ValueError):
+                raise serializers.ValidationError(f'积分规则值必须为数字：{k} -> {v}')
+        return value
+
     def get_registration_count(self, obj):
         return obj.registrations.filter(status__in=['submitted', 'approved']).count()
 
@@ -67,6 +77,16 @@ class SportsMeetSerializer(serializers.ModelSerializer):
 
     def get_event_count(self, obj):
         return obj.events.count()
+
+    def validate(self, data):
+        start = data.get('start_date')
+        end = data.get('end_date')
+        if start and end and end < start:
+            raise serializers.ValidationError({'end_date': '结束日期不能早于开始日期'})
+        deadline = data.get('registration_deadline')
+        if deadline and start and deadline.date() > start:
+            raise serializers.ValidationError({'registration_deadline': '报名截止时间不能晚于开始日期'})
+        return data
 
     def create(self, validated_data):
         request = self.context.get('request')

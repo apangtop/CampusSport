@@ -62,7 +62,7 @@ class Event(models.Model):
         ('three', '三阶段(初赛+半决赛+决赛)'),
     ]
 
-    sports_meet = models.ForeignKey(SportsMeet, on_delete=models.CASCADE, related_name='events', verbose_name='运动会')
+    sports_meet = models.ForeignKey(SportsMeet, on_delete=models.PROTECT, related_name='events', verbose_name='运动会')
     name = models.CharField('项目名称', max_length=100)
     event_type = models.CharField('项目类型', max_length=30, choices=TYPE_CHOICES)
     gender = models.CharField('参赛性别', max_length=10, choices=GENDER_CHOICES, default='male')

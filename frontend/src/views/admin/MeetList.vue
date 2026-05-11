@@ -155,16 +155,20 @@ async function save() {
 }
 
 async function setStatus(row, status) {
-  await meetApi.setStatus(row.id, status)
-  ElMessage.success('状态已更新')
-  load()
+  try {
+    await meetApi.setStatus(row.id, status)
+    ElMessage.success('状态已更新')
+    load()
+  } catch {}
 }
 
 async function deleteMeet(row) {
-  await ElMessageBox.confirm(`确认删除「${row.name}」？`, '提示', { type: 'warning' })
-  await meetApi.delete(row.id)
-  ElMessage.success('已删除')
-  load()
+  try {
+    await ElMessageBox.confirm(`确认删除「${row.name}」？`, '提示', { type: 'warning' })
+    await meetApi.delete(row.id)
+    ElMessage.success('已删除')
+    load()
+  } catch {}
 }
 
 onMounted(load)

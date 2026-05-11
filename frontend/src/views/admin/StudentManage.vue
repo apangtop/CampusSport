@@ -17,9 +17,9 @@
       </template>
 
       <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-        <el-input v-model="filterName" placeholder="搜索姓名" clearable style="width:160px" @input="load" />
-        <ClassSelector v-model="filterClass" @change="load" :clearable="true" />
-        <el-select v-model="filterGender" clearable placeholder="性别" style="width:90px" @change="load">
+        <el-input v-model="filterName" placeholder="搜索姓名" clearable style="width:160px" @input="onFilterChange" />
+        <ClassSelector v-model="filterClass" @change="onFilterChange" :clearable="true" :year-filter="true" />
+        <el-select v-model="filterGender" clearable placeholder="性别" style="width:90px" @change="onFilterChange">
           <el-option label="男" value="male" />
           <el-option label="女" value="female" />
         </el-select>
@@ -30,7 +30,7 @@
         <el-table-column prop="name" label="姓名" width="100" />
         <el-table-column prop="gender" label="性别" width="70" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.gender === 'male' ? '' : 'danger'" size="small">
+            <el-tag :type="row.gender === 'male' ? 'primary' : 'danger'" size="small">
               {{ row.gender === 'male' ? '男' : '女' }}
             </el-tag>
           </template>
@@ -132,6 +132,11 @@ const rules = {
   class_name: [{ required: true, message: '请输入班级' }]
 }
 
+function onFilterChange() {
+  page.value = 1
+  load()
+}
+
 async function load() {
   loading.value = true
   const params = { page: page.value }
@@ -155,17 +160,9 @@ async function save() {
   await formRef.value.validate()
   saving.value = true
   try {
-    // 从班级名称自动解析年级（如 "2026级3班" → grade="初三"）
-    const gradeMap = {
-      0: '初三', 1: '初二', 2: '初一'
-    }
-    const curYear = new Date().getFullYear()
+    // 从班级名称提取年级（统一为 "2028级" 格式，与种子数据一致）
     const match = form.class_name?.match(/^(\d{4})级/)
-    let grade = ''
-    if (match) {
-      const diff = parseInt(match[1]) - curYear
-      grade = gradeMap[diff] || `${match[1]}级`
-    }
+    const grade = match ? `${match[1]}级` : ''
     const data = { ...form, grade }
     if (editId.value) {
       await studentApi.update(editId.value, data)

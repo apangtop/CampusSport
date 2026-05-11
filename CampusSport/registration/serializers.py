@@ -91,4 +91,4 @@ class TeamRegistrationSerializer(serializers.ModelSerializer):
 
 class BulkRegistrationSerializer(serializers.Serializer):
     event_id = serializers.IntegerField()
-    student_ids = serializers.ListField(child=serializers.IntegerField())
+    student_ids = serializers.ListField(child=serializers.IntegerField(), min_length=1, max_length=50)

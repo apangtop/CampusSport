@@ -37,10 +37,19 @@ class StudentViewSet(viewsets.ModelViewSet):
             qs = qs.filter(class_name=user.class_name)
         class_name = self.request.query_params.get('class_name')
         if class_name:
-            qs = qs.filter(class_name=class_name)
+            if class_name.endswith('级') and not class_name.endswith('班'):
+                qs = qs.filter(class_name__startswith=class_name)
+            else:
+                qs = qs.filter(class_name=class_name)
+        name = self.request.query_params.get('name')
+        if name:
+            qs = qs.filter(name__icontains=name)
         gender = self.request.query_params.get('gender')
         if gender:
             qs = qs.filter(gender=gender)
+        grade = self.request.query_params.get('grade')
+        if grade:
+            qs = qs.filter(grade=grade)
         return qs
 
     def get_permissions(self):
@@ -223,18 +232,21 @@ class RegistrationViewSet(viewsets.ModelViewSet):
             if students.count() != len(student_ids):
                 return Response({'detail': '只能为本班学生报名'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # 检查每班报名上限
-            current_count = Registration.objects.filter(
-                event=event,
-                student__class_name=user.class_name,
-                status__in=['submitted', 'approved']
-            ).count()
-            if current_count + len(student_ids) > event.max_per_class:
-                return Response({'detail': f'超出每班报名上限({event.max_per_class}人)'}, status=status.HTTP_400_BAD_REQUEST)
-
         created = []
         errors = []
         with transaction.atomic():
+            # 在事务内检查每班报名上限，防止竞态条件
+            if user.role == 'teacher':
+                current_count = Registration.objects.select_for_update().filter(
+                    event=event,
+                    student__class_name=user.class_name,
+                    status__in=['submitted', 'approved']
+                ).count()
+                if current_count + len(student_ids) > event.max_per_class:
+                    return Response(
+                        {'detail': f'超出每班报名上限({event.max_per_class}人)'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
             for student_id in student_ids:
                 try:
                     student = Student.objects.get(id=student_id)

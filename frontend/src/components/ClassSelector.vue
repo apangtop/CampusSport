@@ -54,7 +54,8 @@ const props = defineProps({
   yearWidth: { type: String, default: '130px' },
   classWidth: { type: String, default: '100px' },
   classCount: { type: Number, default: 20 },
-  clearable: { type: Boolean, default: true }
+  clearable: { type: Boolean, default: true },
+  yearFilter: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['update:modelValue', 'change'])
@@ -104,8 +105,14 @@ watch(() => props.modelValue, (val) => {
 
 function onYearChange() {
   selectedClass.value = null
-  emit('update:modelValue', '')
-  emit('change', '')
+  if (props.yearFilter) {
+    const val = `${selectedYear.value}级`
+    emit('update:modelValue', val)
+    emit('change', val)
+  } else {
+    emit('update:modelValue', '')
+    emit('change', '')
+  }
 }
 
 function onClassChange() {

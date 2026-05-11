@@ -275,6 +275,13 @@ def build_order_book_word(sports_meet):
             event=event, status__in=['submitted', 'approved']
         ).select_related('student', 'schedule').order_by('schedule__group_number', 'lane', 'student__class_name')
 
+        # 预取所有成绩，避免 N+1 查询
+        reg_ids = [r.id for r in registrations]
+        score_map = {
+            s.registration_id: s
+            for s in Score.objects.filter(registration_id__in=reg_ids, stage='final')
+        }
+
         # 按 schedule 分组
         groups = {}
         no_sch_regs = []
@@ -331,7 +338,7 @@ def build_order_book_word(sports_meet):
                     add_cell_text(cell, h, bold=True, font_size=10, color=(255, 255, 255))
 
                 for r_idx, reg in enumerate(grp_regs, 1):
-                    score_obj = Score.objects.filter(registration=reg, stage='final').first()
+                    score_obj = score_map.get(reg.id)
                     result_val = score_obj.result if score_obj else ''
                     rank_val = f'第{score_obj.rank}名' if (score_obj and score_obj.rank) else ''
                     bg = 'F8F9FA' if r_idx % 2 == 0 else 'FFFFFF'

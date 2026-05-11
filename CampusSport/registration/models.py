@@ -31,8 +31,8 @@ class Registration(models.Model):
         ('cancelled', '已取消'),
     ]
 
-    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='registrations', verbose_name='比赛项目')
-    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='registrations', verbose_name='学生')
+    event = models.ForeignKey(Event, on_delete=models.PROTECT, related_name='registrations', verbose_name='比赛项目')
+    student = models.ForeignKey(Student, on_delete=models.PROTECT, related_name='registrations', verbose_name='学生')
     submitted_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, related_name='submitted_registrations', verbose_name='报名人'
@@ -65,7 +65,7 @@ class TeamRegistration(models.Model):
         ('rejected', '已拒绝'),
     ]
 
-    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='team_registrations', verbose_name='比赛项目')
+    event = models.ForeignKey(Event, on_delete=models.PROTECT, related_name='team_registrations', verbose_name='比赛项目')
     class_name = models.CharField('班级', max_length=50)
     members = models.ManyToManyField(Student, related_name='team_registrations', verbose_name='队员', blank=True)
     submitted_by = models.ForeignKey(

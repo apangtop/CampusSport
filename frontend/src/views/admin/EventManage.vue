@@ -5,7 +5,12 @@
       <template #header>
         <div class="card-header">
           <span>比赛项目列表</span>
-          <el-button type="primary" :icon="Plus" @click="openDialog()">新建项目</el-button>
+          <div style="display:flex;gap:12px">
+            <el-select v-model="filterType" clearable placeholder="项目类型" style="width:130px" @change="load">
+              <el-option v-for="t in typeOptions" :key="t.value" :label="t.label" :value="t.value" />
+            </el-select>
+            <el-button type="primary" :icon="Plus" @click="openDialog()">新建项目</el-button>
+          </div>
         </div>
       </template>
       <el-table :data="events" v-loading="loading">
@@ -136,6 +141,7 @@ const saving = ref(false)
 const dialogVisible = ref(false)
 const editId = ref(null)
 const formRef = ref()
+const filterType = ref('')
 
 const defaultScoreRules = () => ({ 1: 7, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1 })
 const scoreRules = reactive(defaultScoreRules())
@@ -168,7 +174,9 @@ const rules = {
 
 async function load() {
   loading.value = true
-  const res = await eventApi.list({ sports_meet: meetId })
+  const params = { sports_meet: meetId }
+  if (filterType.value) params.type = filterType.value
+  const res = await eventApi.list(params)
   events.value = res.results || res
   loading.value = false
 }

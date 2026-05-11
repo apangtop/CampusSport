@@ -20,49 +20,53 @@ class IsAdminOrReferee(permissions.BasePermission):
 
 def calculate_rank_and_points(event, stage='final'):
     """重新计算某项目某阶段的排名和积分"""
-    scores = Score.objects.filter(
-        registration__event=event,
-        stage=stage,
-        result_numeric__isnull=False
-    )
+    from django.db import transaction
+    with transaction.atomic():
+        scores = Score.objects.select_for_update().filter(
+            registration__event=event,
+            stage=stage,
+            result_numeric__isnull=False
+        )
 
-    # 根据项目类型决定排序方向
-    descending_types = ['field', 'fun_individual']
-    if event.event_type in descending_types and event.result_unit in ['meter', 'count']:
-        scores = scores.order_by('-result_numeric')
-    else:
-        scores = scores.order_by('result_numeric')
+        # 根据项目类型决定排序方向
+        descending_types = ['field', 'fun_individual']
+        if event.event_type in descending_types and event.result_unit in ['meter', 'count']:
+            scores = scores.order_by('-result_numeric')
+        else:
+            scores = scores.order_by('result_numeric')
 
-    score_rules = event.score_rules or {1: 7, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
-    for idx, score in enumerate(scores, 1):
-        score.rank = idx
-        score.points = float(score_rules.get(str(idx), score_rules.get(idx, 0))) * event.score_multiplier
-        score.save(update_fields=['rank', 'points'])
+        score_rules = event.score_rules or {1: 7, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
+        for idx, score in enumerate(scores, 1):
+            score.rank = idx
+            score.points = float(score_rules.get(str(idx), score_rules.get(idx, 0))) * event.score_multiplier
+            score.save(update_fields=['rank', 'points'])
 
-    return scores.count()
+        return scores.count()
 
 
 def calculate_team_rank_and_points(event, stage='final'):
     """重新计算某团体项目某阶段的排名和积分"""
-    scores = TeamScore.objects.filter(
-        team_registration__event=event,
-        stage=stage,
-        result_numeric__isnull=False
-    )
+    from django.db import transaction
+    with transaction.atomic():
+        scores = TeamScore.objects.select_for_update().filter(
+            team_registration__event=event,
+            stage=stage,
+            result_numeric__isnull=False
+        )
 
-    descending_types = ['field', 'fun_individual']
-    if event.event_type in descending_types and event.result_unit in ['meter', 'count']:
-        scores = scores.order_by('-result_numeric')
-    else:
-        scores = scores.order_by('result_numeric')
+        descending_types = ['field', 'fun_individual']
+        if event.event_type in descending_types and event.result_unit in ['meter', 'count']:
+            scores = scores.order_by('-result_numeric')
+        else:
+            scores = scores.order_by('result_numeric')
 
-    score_rules = event.score_rules or {1: 7, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
-    for idx, score in enumerate(scores, 1):
-        score.rank = idx
-        score.points = float(score_rules.get(str(idx), score_rules.get(idx, 0))) * event.score_multiplier
-        score.save(update_fields=['rank', 'points'])
+        score_rules = event.score_rules or {1: 7, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
+        for idx, score in enumerate(scores, 1):
+            score.rank = idx
+            score.points = float(score_rules.get(str(idx), score_rules.get(idx, 0))) * event.score_multiplier
+            score.save(update_fields=['rank', 'points'])
 
-    return scores.count()
+        return scores.count()
 
 
 def recalculate_class_points(sports_meet):

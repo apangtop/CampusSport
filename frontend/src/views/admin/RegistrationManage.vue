@@ -17,6 +17,7 @@
           </div>
           <div style="display:flex;gap:8px">
             <el-button type="success" @click="approveAll">一键审核全部</el-button>
+            <el-button type="warning" @click="autoAssign" :disabled="!filterEvent">自动分组道次</el-button>
           </div>
         </div>
       </template>
@@ -95,6 +96,21 @@ async function approveAll() {
   const res = await registrationApi.approveAll(params)
   ElMessage.success(res.detail)
   load()
+}
+
+async function autoAssign() {
+  try {
+    const result = await ElMessageBox.prompt('每组几条跑道（道次）？', '自动分组', {
+      confirmButtonText: '确定',
+      inputValue: '8',
+      inputPattern: /^\d+$/,
+      inputErrorMessage: '请输入数字'
+    })
+    const lanes = parseInt(result.value) || 8
+    const res = await eventApi.autoAssignLanes(filterEvent.value, { lanes_per_group: lanes })
+    ElMessage.success(res.detail)
+    load()
+  } catch {}
 }
 
 async function deleteReg(row) {

@@ -36,7 +36,7 @@ export const eventApi = {
   update: (id, data) => request.patch(`/events/${id}/`, data),
   delete: id => request.delete(`/events/${id}/`),
   participants: id => request.get(`/events/${id}/participants/`),
-  autoAssignLanes: id => request.post(`/events/${id}/auto_assign_lanes/`)
+  autoAssignLanes: (id, data) => request.post(`/events/${id}/auto_assign_lanes/`, data)
 }
 
 // ===== 赛程 =====
