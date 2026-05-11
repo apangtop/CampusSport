@@ -85,8 +85,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { eventApi } from '@/api'
-import request from '@/api/request'
+import { eventApi, teamRegistrationApi, teamScoreApi } from '@/api'
 
 const confrontEvents = ref([])
 const teams = ref([])
@@ -118,9 +117,9 @@ const teamName = id => teams.value.find(t => t.id === id)?.class_name || id
 
 async function loadTeams() {
   if (!filterEvent.value) return
-  const res = await request.get(`/team-registrations/?event=${filterEvent.value}`)
+  const res = await teamRegistrationApi.list({ event: filterEvent.value })
   teams.value = res.results || res
-  const scRes = await request.get(`/team-scores/?event=${filterEvent.value}`)
+  const scRes = await teamScoreApi.list({ event: filterEvent.value })
   teamScores.value = scRes.results || scRes
 }
 
@@ -148,20 +147,48 @@ async function submitMatch() {
     const winsW = match.rounds.filter(r => r.winner === matchWinner.value).length
     const winsL = match.rounds.filter(r => r.winner === loserTeamId).length
 
-    // 提交胜者成绩
-    await request.post('/team-scores/', {
-      team_registration: matchWinner.value,
-      stage: 'final',
-      result: `${winsW}:${winsL}（胜）`,
-      result_numeric: winsW,
-    })
-    // 提交负者成绩
-    await request.post('/team-scores/', {
-      team_registration: loserTeamId,
-      stage: 'final',
-      result: `${winsL}:${winsW}（负）`,
-      result_numeric: winsL,
-    })
+    // 构建轮次数据（所有已填写的局）
+    const winnerRounds = match.rounds
+      .filter(r => r.winner === matchWinner.value)
+      .map(r => ({ round_number: r.number, winner_class: teamName(matchWinner.value) }))
+    const loserRounds = match.rounds
+      .filter(r => r.winner === loserTeamId)
+      .map(r => ({ round_number: r.number, winner_class: teamName(loserTeamId) }))
+
+    // 提交胜者成绩（upsert）
+    const existingScores = teamScores.value
+    const existingWinner = existingScores.find(s => s.team_registration === matchWinner.value)
+    if (existingWinner) {
+      await teamScoreApi.update(existingWinner.id, {
+        result: `${winsW}:${winsL}（胜）`,
+        result_numeric: winsW,
+      })
+    } else {
+      await teamScoreApi.create({
+        team_registration: matchWinner.value,
+        stage: 'final',
+        result: `${winsW}:${winsL}（胜）`,
+        result_numeric: winsW,
+        rounds_data: winnerRounds,
+      })
+    }
+
+    // 提交负者成绩（upsert）
+    const existingLoser = existingScores.find(s => s.team_registration === loserTeamId)
+    if (existingLoser) {
+      await teamScoreApi.update(existingLoser.id, {
+        result: `${winsL}:${winsW}（负）`,
+        result_numeric: winsL,
+      })
+    } else {
+      await teamScoreApi.create({
+        team_registration: loserTeamId,
+        stage: 'final',
+        result: `${winsL}:${winsW}（负）`,
+        result_numeric: winsL,
+        rounds_data: loserRounds,
+      })
+    }
 
     ElMessage.success(`比赛结果已保存：${teamName(matchWinner.value)} 获胜`)
     currentMatch.value = null

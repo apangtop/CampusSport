@@ -44,7 +44,7 @@
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                <el-dropdown-item command="changePassword">修改密码</el-dropdown-item><el-dropdown-item command="logout">退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -73,7 +73,9 @@ const collapsed = ref(false)
 const currentMeetName = computed(() => route.meta?.meetName || '')
 
 function handleCommand(cmd) {
-  if (cmd === 'logout') {
+  if (cmd === 'changePassword') {
+    router.push('/admin/change-password')
+  } else if (cmd === 'logout') {
     ElMessageBox.confirm('确认退出登录？', '提示', { type: 'warning' }).then(() => {
       auth.logout()
       router.push('/login')

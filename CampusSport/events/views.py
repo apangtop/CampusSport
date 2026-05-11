@@ -71,6 +71,9 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        user = self.request.user
+        if user.role == 'referee':
+            qs = qs.filter(referee=user)
         meet_id = self.request.query_params.get('sports_meet')
         if meet_id:
             qs = qs.filter(sports_meet_id=meet_id)

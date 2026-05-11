@@ -23,13 +23,13 @@ class ScoreSerializer(serializers.ModelSerializer):
 class ConfrontationRoundSerializer(serializers.ModelSerializer):
     class Meta:
         model = ConfrontationRound
-        fields = '__all__'
-        read_only_fields = ['id']
+        fields = ['id', 'round_number', 'winner_class']
 
 
 class TeamScoreSerializer(serializers.ModelSerializer):
     class_name = serializers.CharField(source='team_registration.class_name', read_only=True)
     rounds = ConfrontationRoundSerializer(many=True, read_only=True)
+    rounds_data = serializers.ListField(child=serializers.DictField(), write_only=True, required=False)
 
     class Meta:
         model = TeamScore
@@ -38,9 +38,17 @@ class TeamScoreSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context.get('request')
+        rounds_input = validated_data.pop('rounds_data', [])
         if request:
             validated_data['recorded_by'] = request.user
-        return super().create(validated_data)
+        team_score = super().create(validated_data)
+        for rd in rounds_input:
+            ConfrontationRound.objects.create(
+                team_score=team_score,
+                round_number=rd.get('round_number', 0),
+                winner_class=rd.get('winner_class', '')
+            )
+        return team_score
 
 
 class ClassPointsSerializer(serializers.ModelSerializer):

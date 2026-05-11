@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from django.db.models import Sum
 from .models import Score, TeamScore, ConfrontationRound, ClassPoints
 from .serializers import ScoreSerializer, TeamScoreSerializer, ConfrontationRoundSerializer, ClassPointsSerializer
-from events.models import Event
+from events.models import Event, Schedule
 from registration.models import Registration
 
 
@@ -27,6 +27,29 @@ def calculate_rank_and_points(event, stage='final'):
     )
 
     # 根据项目类型决定排序方向
+    descending_types = ['field', 'fun_individual']
+    if event.event_type in descending_types and event.result_unit in ['meter', 'count']:
+        scores = scores.order_by('-result_numeric')
+    else:
+        scores = scores.order_by('result_numeric')
+
+    score_rules = event.score_rules or {1: 7, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
+    for idx, score in enumerate(scores, 1):
+        score.rank = idx
+        score.points = float(score_rules.get(str(idx), score_rules.get(idx, 0))) * event.score_multiplier
+        score.save(update_fields=['rank', 'points'])
+
+    return scores.count()
+
+
+def calculate_team_rank_and_points(event, stage='final'):
+    """重新计算某团体项目某阶段的排名和积分"""
+    scores = TeamScore.objects.filter(
+        team_registration__event=event,
+        stage=stage,
+        result_numeric__isnull=False
+    )
+
     descending_types = ['field', 'fun_individual']
     if event.event_type in descending_types and event.result_unit in ['meter', 'count']:
         scores = scores.order_by('-result_numeric')
@@ -191,16 +214,44 @@ class ScoreViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], permission_classes=[IsAdmin])
     def confirm_advancement(self, request):
-        """确认晋级名单"""
+        """确认晋级名单，并将晋级选手分配到下一阶段赛程"""
         event_id = request.data.get('event_id')
         advanced_registration_ids = request.data.get('registration_ids', [])
+        stage = request.data.get('stage', 'preliminary')
+
+        try:
+            event = Event.objects.get(id=event_id)
+        except Event.DoesNotExist:
+            return Response({'detail': '项目不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 确定下一阶段
+        stage_order = ['preliminary', 'semifinal', 'final']
+        stage_idx = stage_order.index(stage) if stage in stage_order else -1
+        if stage_idx == -1 or stage_idx == len(stage_order) - 1:
+            return Response({'detail': '已是最后阶段，无法晋级'}, status=status.HTTP_400_BAD_REQUEST)
+        next_stage = stage_order[stage_idx + 1]
+
+        # 获取或创建下一阶段的第一组赛程
+        next_schedule, _ = Schedule.objects.get_or_create(
+            event=event, stage=next_stage, group_number=1,
+            defaults={'notes': '自动创建（晋级）'}
+        )
+
+        # 重置当前阶段所有成绩的晋级标记
         Score.objects.filter(
-            registration__event_id=event_id, stage='preliminary'
+            registration__event_id=event_id, stage=stage
         ).update(is_advanced=False)
-        Score.objects.filter(
-            registration_id__in=advanced_registration_ids, stage='preliminary'
-        ).update(is_advanced=True)
-        return Response({'detail': '晋级名单已确认'})
+
+        # 标记晋级并将 registrations 分配到下一阶段赛程
+        advanced_count = 0
+        for idx, reg_id in enumerate(advanced_registration_ids, 1):
+            Score.objects.filter(registration_id=reg_id, stage=stage).update(is_advanced=True)
+            Registration.objects.filter(id=reg_id).update(schedule=next_schedule, lane=idx)
+            advanced_count += 1
+
+        return Response({
+            'detail': f'已确认 {advanced_count} 人晋级 {dict(Schedule.STAGE_LABEL_CHOICES).get(next_stage, next_stage)}，已分配道次'
+        })
 
 
 class TeamScoreViewSet(viewsets.ModelViewSet):
@@ -215,10 +266,22 @@ class TeamScoreViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        user = self.request.user
+        if user.role == 'referee':
+            qs = qs.filter(team_registration__event__referee=user)
         event_id = self.request.query_params.get('event')
         if event_id:
             qs = qs.filter(team_registration__event_id=event_id)
         return qs
+
+    def perform_create(self, serializer):
+        serializer.save(recorded_by=self.request.user)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        event = instance.team_registration.event
+        calculate_team_rank_and_points(event, instance.stage)
+        recalculate_class_points(event.sports_meet)
 
 
 class ClassPointsViewSet(viewsets.ReadOnlyModelViewSet):

@@ -27,6 +27,7 @@ const routes = [
       { path: 'accounts', name: 'AccountManage', component: () => import('@/views/admin/AccountManage.vue') },
       { path: 'students', name: 'StudentManage', component: () => import('@/views/admin/StudentManage.vue') },
       { path: 'history', name: 'HistoryData', component: () => import('@/views/admin/HistoryData.vue') },
+    { path: 'change-password', name: 'AdminChangePassword', component: () => import('@/views/ChangePassword.vue') },
     ]
   },
   // 班主任（teacher）路由
@@ -42,6 +43,7 @@ const routes = [
       { path: 'my-registrations', name: 'MyRegistrations', component: () => import('@/views/teacher/MyRegistrations.vue') },
       { path: 'scores', name: 'TeacherScores', component: () => import('@/views/teacher/Scores.vue') },
       { path: 'points', name: 'TeacherPoints', component: () => import('@/views/teacher/Points.vue') },
+    { path: 'change-password', name: 'TeacherChangePassword', component: () => import('@/views/ChangePassword.vue') },
     ]
   },
   // 裁判（referee）路由
@@ -56,6 +58,7 @@ const routes = [
       { path: 'score-entry', name: 'ScoreEntry', component: () => import('@/views/referee/ScoreEntry.vue') },
       { path: 'points', name: 'RefereePoints', component: () => import('@/views/referee/Points.vue') },
       { path: 'confrontation', name: 'ConfrontationEntry', component: () => import('@/views/referee/ConfrontationEntry.vue') },
+    { path: 'change-password', name: 'RefereeChangePassword', component: () => import('@/views/ChangePassword.vue') },
     ]
   },
   { path: '/', redirect: '/login' },

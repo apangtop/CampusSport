@@ -63,6 +63,31 @@ class TeamRegistrationSerializer(serializers.ModelSerializer):
             team_reg.members.set(members)
         return team_reg
 
+    def validate(self, data):
+        event = data.get('event')
+        members = data.get('members', [])
+        if event and event.team_size and len(members) != event.team_size:
+            raise serializers.ValidationError(
+                {'members': f'需要 {event.team_size} 名队员，当前选择了 {len(members)} 名'}
+            )
+        # 检查成员性别与项目性别是否匹配
+        if event and event.gender != 'mixed':
+            from .models import Student
+            for member_id in members:
+                try:
+                    member_id_int = member_id if isinstance(member_id, int) else member_id.id
+                except (AttributeError, ValueError):
+                    continue
+                try:
+                    student = Student.objects.get(id=member_id_int)
+                    if student.gender != event.gender:
+                        raise serializers.ValidationError(
+                            {'members': f'{student.name} 性别不符（项目要求{event.get_gender_display()}）'}
+                        )
+                except Student.DoesNotExist:
+                    pass
+        return data
+
 
 class BulkRegistrationSerializer(serializers.Serializer):
     event_id = serializers.IntegerField()

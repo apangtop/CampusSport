@@ -247,10 +247,19 @@ def build_order_book_word(sports_meet):
 
         # 项目信息行
         referee_name = event.referee.real_name if event.referee else '待定'
+        # 汇总赛程时间、场地
+        scheds = event.schedules.all()
+        times = [s.scheduled_time.strftime('%m/%d %H:%M') for s in scheds if s.scheduled_time]
+        venues = list(set(s.venue for s in scheds if s.venue))
+        time_str = '、'.join(times) if times else '待定'
+        venue_str = '、'.join(venues) if venues else '待定'
+
         info_parts = [
             f'性别：{event.get_gender_display()}',
             f'成绩单位：{event.get_result_unit_display()}',
             f'赛制：{event.get_stage_type_display()}',
+            f'比赛时间：{time_str}',
+            f'场地：{venue_str}',
             f'负责裁判：{referee_name}',
         ]
         info_p = doc.add_paragraph('    '.join(info_parts))

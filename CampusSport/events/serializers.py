@@ -9,6 +9,24 @@ class ScheduleSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['id']
 
+    def validate(self, data):
+        venue = data.get('venue', '')
+        scheduled_time = data.get('scheduled_time')
+        event = data.get('event')
+        if venue and scheduled_time:
+            conflicts = Schedule.objects.filter(
+                venue=venue,
+                scheduled_time=scheduled_time
+            ).select_related('event')
+            if self.instance:
+                conflicts = conflicts.exclude(id=self.instance.id)
+            if conflicts.exists():
+                conflict = conflicts.first()
+                raise serializers.ValidationError(
+                    f'时间冲突：{conflict.event.name} 已安排在「{venue}」({scheduled_time.strftime("%m/%d %H:%M")})'
+                )
+        return data
+
 
 class EventSerializer(serializers.ModelSerializer):
     referee_info = UserSerializer(source='referee', read_only=True)

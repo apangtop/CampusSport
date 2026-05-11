@@ -13,7 +13,8 @@ export const userApi = {
   create: data => request.post('/users/', data),
   update: (id, data) => request.patch(`/users/${id}/`, data),
   delete: id => request.delete(`/users/${id}/`),
-  resetPassword: (id, data) => request.post(`/users/${id}/reset_password/`, data)
+  resetPassword: (id, data) => request.post(`/users/${id}/reset_password/`, data),
+  changePassword: (id, data) => request.post(`/users/${id}/change_password/`, data)
 }
 
 // ===== 运动会 =====
@@ -67,6 +68,14 @@ export const registrationApi = {
   approveAll: data => request.post('/registrations/approve_all/', data)
 }
 
+// ===== 团体报名 =====
+export const teamRegistrationApi = {
+  list: params => request.get('/team-registrations/', { params }),
+  create: data => request.post('/team-registrations/', data),
+  update: (id, data) => request.patch(`/team-registrations/${id}/`, data),
+  delete: id => request.delete(`/team-registrations/${id}/`)
+}
+
 // ===== 成绩 =====
 export const scoreApi = {
   list: params => request.get('/scores/', { params }),
@@ -75,6 +84,13 @@ export const scoreApi = {
   batchSubmit: data => request.post('/scores/batch_submit/', data),
   calculateRanks: data => request.post('/scores/calculate_ranks/', data),
   confirmAdvancement: data => request.post('/scores/confirm_advancement/', data)
+}
+
+// ===== 团体成绩 =====
+export const teamScoreApi = {
+  list: params => request.get('/team-scores/', { params }),
+  create: data => request.post('/team-scores/', data),
+  update: (id, data) => request.patch(`/team-scores/${id}/`, data)
 }
 
 // ===== 积分榜 =====

@@ -67,7 +67,8 @@ const submitting = ref(false)
 const filterEvent = ref(route.query.event || '')
 const filterStage = ref('final')
 const scoreMap = reactive({})
-const savedMap = reactive({})
+const savedMap = reactive({})       // registration_id → result display
+const scoreIdMap = reactive({})     // registration_id → score record id
 
 const currentEvent = computed(() => myEvents.value.find(e => e.id == filterEvent.value))
 
@@ -80,11 +81,13 @@ async function loadParticipants() {
   const res = await eventApi.participants(filterEvent.value)
   participants.value = res.results || res
 
-  // 加载已有成绩
+  // 加载已有成绩（记录 score id 用于后续 update）
   const scoresRes = await scoreApi.list({ event: filterEvent.value, stage: filterStage.value })
   const scores = scoresRes.results || scoresRes
   scores.forEach(s => {
     savedMap[s.registration] = s.result
+    scoreIdMap[s.registration] = s.id
+    scoreMap[s.registration] = s.result
   })
   loading.value = false
 }
@@ -92,12 +95,21 @@ async function loadParticipants() {
 async function autoSave(row) {
   const result = scoreMap[row.id]
   if (!result) return
-  await scoreApi.create({
-    registration: row.id,
-    stage: filterStage.value,
-    result: result,
-    result_numeric: parseFloat(result) || null
-  })
+  const existingId = scoreIdMap[row.id]
+  if (existingId) {
+    await scoreApi.update(existingId, {
+      result: result,
+      result_numeric: parseFloat(result) || null
+    })
+  } else {
+    const res = await scoreApi.create({
+      registration: row.id,
+      stage: filterStage.value,
+      result: result,
+      result_numeric: parseFloat(result) || null
+    })
+    scoreIdMap[row.id] = res.id
+  }
   savedMap[row.id] = result
 }
 

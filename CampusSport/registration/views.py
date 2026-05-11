@@ -2,6 +2,7 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
+from django.utils import timezone
 from django.http import HttpResponse
 import openpyxl
 import io
@@ -112,6 +113,38 @@ class StudentViewSet(viewsets.ModelViewSet):
         response['Content-Disposition'] = 'attachment; filename="student_template.xlsx"'
         return response
 
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminOrTeacher])
+    def bulk(self, request):
+        """批量创建学生"""
+        students_data = request.data if isinstance(request.data, list) else request.data.get('students', [])
+        if not students_data:
+            return Response({'detail': '请提供学生列表'}, status=status.HTTP_400_BAD_REQUEST)
+
+        class_name = request.data.get('class_name') if isinstance(request.data, dict) else ''
+        created, errors = [], []
+        for item in students_data:
+            name = item.get('name', '').strip()
+            if not name:
+                errors.append('姓名为空')
+                continue
+            item_class = item.get('class_name', class_name) or (request.user.class_name if request.user.role == 'teacher' else '')
+            if not item_class:
+                errors.append(f'{name}: 缺少班级信息')
+                continue
+            gender_raw = item.get('gender', '男')
+            gender = 'male' if str(gender_raw) in ['男', 'male', 'M', 'm'] else 'female'
+            obj, is_new = Student.objects.get_or_create(
+                name=name, class_name=item_class,
+                defaults={
+                    'gender': gender,
+                    'student_id': item.get('student_id', ''),
+                    'grade': item.get('grade', ''),
+                }
+            )
+            if is_new:
+                created.append(name)
+        return Response({'created': len(created), 'errors': errors, 'detail': f'新增 {len(created)} 名学生'})
+
 
 class RegistrationViewSet(viewsets.ModelViewSet):
     queryset = Registration.objects.select_related('student', 'event', 'submitted_by', 'schedule').all()
@@ -172,9 +205,17 @@ class RegistrationViewSet(viewsets.ModelViewSet):
         student_ids = serializer.validated_data['student_ids']
 
         try:
-            event = Event.objects.get(id=event_id)
+            event = Event.objects.select_related('sports_meet').get(id=event_id)
         except Event.DoesNotExist:
             return Response({'detail': '项目不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        meet = event.sports_meet
+
+        # 检查运动会状态和报名截止时间
+        if meet.status != 'registration' and request.user.role != 'admin':
+            return Response({'detail': '当前不在报名阶段'}, status=status.HTTP_400_BAD_REQUEST)
+        if meet.registration_deadline and timezone.now() > meet.registration_deadline and request.user.role != 'admin':
+            return Response({'detail': '报名已截止'}, status=status.HTTP_400_BAD_REQUEST)
 
         user = request.user
         if user.role == 'teacher':
@@ -197,15 +238,21 @@ class RegistrationViewSet(viewsets.ModelViewSet):
             for student_id in student_ids:
                 try:
                     student = Student.objects.get(id=student_id)
-                    # 检查每人报名项目数（从运动会级别取上限）
-                    max_per_person = event.sports_meet.max_events_per_person
+
+                    # 检查性别匹配
+                    if event.gender != 'mixed' and student.gender != event.gender:
+                        errors.append(f'{student.name} 性别不符（项目要求{event.get_gender_display()}）')
+                        continue
+
+                    # 检查每人报名项目数：以 event.max_per_person 为准，meet 上限兜底
+                    per_event_cap = event.max_per_person or meet.max_events_per_person
                     person_count = Registration.objects.filter(
                         student=student,
-                        event__sports_meet=event.sports_meet,
+                        event__sports_meet=meet,
                         status__in=['submitted', 'approved']
                     ).count()
-                    if person_count >= max_per_person:
-                        errors.append(f'{student.name} 已达到报名项目上限（{max_per_person}个）')
+                    if person_count >= per_event_cap:
+                        errors.append(f'{student.name} 已达到报名项目上限（{per_event_cap}个）')
                         continue
                     reg, created_flag = Registration.objects.get_or_create(
                         event=event, student=student,
