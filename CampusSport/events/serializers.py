@@ -56,12 +56,13 @@ class EventListSerializer(serializers.ModelSerializer):
     referee_name = serializers.CharField(source='referee.real_name', read_only=True, allow_null=True)
     registration_count = serializers.SerializerMethodField()
     team_count = serializers.SerializerMethodField()
+    total_max = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
         fields = ['id', 'name', 'event_type', 'gender', 'grade', 'result_unit', 'stage_type',
                   'max_per_class', 'max_per_person', 'team_size', 'referee', 'referee_name',
-                  'score_multiplier', 'registration_count', 'team_count']
+                  'score_multiplier', 'registration_count', 'team_count', 'total_max']
 
     def get_registration_count(self, obj):
         return obj.registrations.filter(status__in=['submitted', 'approved']).count()
@@ -70,6 +71,16 @@ class EventListSerializer(serializers.ModelSerializer):
         if obj.event_type in ('relay', 'team_confrontation'):
             return obj.team_registrations.filter(status__in=['submitted', 'approved']).count()
         return 0
+
+    def get_total_max(self, obj):
+        from registration.models import Student
+        base_qs = Student.objects.all()
+        if obj.grade:
+            base_qs = base_qs.filter(grade=obj.grade)
+        class_count = base_qs.values('class_name').distinct().count() or 1
+        if obj.event_type in ('relay', 'team_confrontation'):
+            return class_count
+        return obj.max_per_class * class_count
 
 
 class SportsMeetSerializer(serializers.ModelSerializer):

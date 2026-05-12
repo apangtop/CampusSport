@@ -22,15 +22,9 @@
               <el-tag v-if="ev.grade" size="small" type="warning" style="margin-left:4px">{{ ev.grade }}</el-tag>
             </div>
             <div class="event-info-line">👤 {{ ev.referee_name || '未分配' }}</div>
-            <div class="event-info-line">
-              <template v-if="ev.event_type === 'relay' || ev.event_type === 'team_confrontation'">
-                📋 {{ ev.team_count || 0 }} 队报名
-              </template>
-              <template v-else>
-                📋 {{ ev.registration_count || 0 }} 人报名
-              </template>
-              · {{ scheduleCounts[ev.id] || 0 }} 条赛程
-            </div>
+            <div class="event-info-line">📋 {{ regLabel(ev) }}</div>
+            <el-progress :percentage="progressPct(ev)" :stroke-width="6" :show-text="false"
+              :color="progressPct(ev) >= 100 ? '#67c23a' : '#409eff'" style="margin-top:4px" />
           </el-card>
         </div>
       </div>
@@ -200,6 +194,17 @@ const scheduleCounts = computed(() => {
   })
   return counts
 })
+
+function isTeam(ev) { return ev && ['relay', 'team_confrontation'].includes(ev.event_type) }
+function regLabel(ev) {
+  const cur = isTeam(ev) ? (ev.team_count || 0) : (ev.registration_count || 0)
+  const unit = isTeam(ev) ? '队' : '人'
+  return `${cur}/${ev.total_max || 0} ${unit}`
+}
+function progressPct(ev) {
+  const cur = isTeam(ev) ? (ev.team_count || 0) : (ev.registration_count || 0)
+  return Math.min(100, Math.round((cur / (ev.total_max || 1)) * 100))
+}
 
 async function openEventDetail(ev) {
   detailEvent.value = ev
