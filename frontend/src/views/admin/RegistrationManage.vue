@@ -232,6 +232,7 @@ async function load() {
       if (filterEvent.value) params.event = filterEvent.value
       if (filterStatus.value) params.status = filterStatus.value
       if (filterClass.value) params.class_name = filterClass.value
+      if (filterType.value) params.type = filterType.value
       const res = await registrationApi.list(params)
       registrations.value = res.results || res
       total.value = res.count || 0

@@ -224,6 +224,9 @@ class RegistrationViewSet(viewsets.ModelViewSet):
         meet_id = self.request.query_params.get('sports_meet')
         if meet_id:
             qs = qs.filter(event__sports_meet_id=meet_id)
+        event_type = self.request.query_params.get('type')
+        if event_type:
+            qs = qs.filter(event__event_type=event_type)
         return qs
 
     def perform_create(self, serializer):
@@ -399,6 +402,18 @@ class TeamRegistrationViewSet(viewsets.ModelViewSet):
         event_id = self.request.query_params.get('event')
         if event_id:
             qs = qs.filter(event_id=event_id)
+        class_name = self.request.query_params.get('class_name')
+        if class_name:
+            if class_name.endswith('级') and not class_name.endswith('班'):
+                qs = qs.filter(class_name__startswith=class_name)
+            else:
+                qs = qs.filter(class_name=class_name)
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        meet_id = self.request.query_params.get('sports_meet')
+        if meet_id:
+            qs = qs.filter(event__sports_meet_id=meet_id)
         return qs
 
     def perform_create(self, serializer):
