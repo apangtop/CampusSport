@@ -282,12 +282,20 @@ class RegistrationViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             # 在事务内检查每班报名上限，防止竞态条件
             if user.role == 'teacher':
+                # 排除已报名本项目学生，只统计新增人数
+                existing_ids = set(
+                    Registration.objects.filter(
+                        event=event, student_id__in=student_ids,
+                        status__in=['submitted', 'approved']
+                    ).values_list('student_id', flat=True)
+                )
+                new_count = len(student_ids) - len(existing_ids)
                 current_count = Registration.objects.select_for_update().filter(
                     event=event,
                     student__class_name=user.class_name,
                     status__in=['submitted', 'approved']
                 ).count()
-                if current_count + len(student_ids) > event.max_per_class:
+                if current_count + new_count > event.max_per_class:
                     return Response(
                         {'detail': f'超出每班报名上限({event.max_per_class}人)'},
                         status=status.HTTP_400_BAD_REQUEST
