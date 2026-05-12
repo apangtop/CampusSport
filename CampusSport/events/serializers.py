@@ -59,7 +59,7 @@ class EventListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Event
         fields = ['id', 'name', 'event_type', 'gender', 'grade', 'result_unit', 'stage_type',
-                  'max_per_class', 'referee', 'referee_name',
+                  'max_per_class', 'max_per_person', 'team_size', 'referee', 'referee_name',
                   'score_multiplier', 'registration_count']
 
     def get_registration_count(self, obj):
