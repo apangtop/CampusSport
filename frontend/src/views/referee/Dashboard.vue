@@ -43,7 +43,7 @@ const unitLabel = u => unitMap[u] || u
 
 onMounted(async () => {
   loading.value = true
-  const res = await eventApi.list()
+  const res = await eventApi.list({ page_size: 200 })
   events.value = res.results || res
   loading.value = false
 })

@@ -92,7 +92,7 @@ async function loadEvents() {
   loading.value = true
   const [evRes, regRes] = await Promise.all([
     eventApi.list({ sports_meet: filterMeet.value, page_size: 200 }),
-    registrationApi.list({ sports_meet: filterMeet.value, class_name: auth.user?.class_name })
+    registrationApi.list({ sports_meet: filterMeet.value, class_name: auth.user?.class_name, page_size: 200 })
   ])
   events.value = evRes.results || evRes
   const counts = {}

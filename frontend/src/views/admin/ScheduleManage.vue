@@ -219,7 +219,7 @@ async function saveSch() {
     // 刷新
     await openEventDetail(detailEvent.value)
     // 同时刷新全局计数
-    const all = await scheduleApi.list({ sports_meet: meetId })
+    const all = await scheduleApi.list({ sports_meet: meetId, page_size: 500 })
     totalSchedules.value = all.results || all
   } finally {
     schSaving.value = false
@@ -232,7 +232,7 @@ async function deleteSch(row) {
     await scheduleApi.delete(row.id)
     ElMessage.success('已删除')
     openEventDetail(detailEvent.value)
-    const all = await scheduleApi.list({ sports_meet: meetId })
+    const all = await scheduleApi.list({ sports_meet: meetId, page_size: 500 })
     totalSchedules.value = all.results || all
   } catch {}
 }
@@ -240,7 +240,7 @@ async function deleteSch(row) {
 onMounted(async () => {
   const [evRes, schRes] = await Promise.all([
     eventApi.list({ sports_meet: meetId, page_size: 200 }),
-    scheduleApi.list({ sports_meet: meetId })
+    scheduleApi.list({ sports_meet: meetId, page_size: 500 })
   ])
   events.value = evRes.results || evRes
   totalSchedules.value = schRes.results || schRes

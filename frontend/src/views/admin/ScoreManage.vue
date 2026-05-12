@@ -353,7 +353,7 @@ async function loadAll() {
   loading.value = true
   const [partRes, scoreRes] = await Promise.all([
     eventApi.participants(filterEvent.value),
-    scoreApi.list({ event: filterEvent.value, stage: filterStage.value })
+    scoreApi.list({ event: filterEvent.value, stage: filterStage.value, page_size: 200 })
   ])
   const participants = partRes.results || partRes
   const scores = scoreRes.results || scoreRes

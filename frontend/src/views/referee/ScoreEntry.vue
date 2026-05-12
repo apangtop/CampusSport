@@ -82,7 +82,7 @@ async function loadParticipants() {
   participants.value = res.results || res
 
   // 加载已有成绩（记录 score id 用于后续 update）
-  const scoresRes = await scoreApi.list({ event: filterEvent.value, stage: filterStage.value })
+  const scoresRes = await scoreApi.list({ event: filterEvent.value, stage: filterStage.value, page_size: 200 })
   const scores = scoresRes.results || scoresRes
   scores.forEach(s => {
     savedMap[s.registration] = s.result
@@ -137,7 +137,7 @@ async function submitAll() {
 }
 
 onMounted(async () => {
-  const res = await eventApi.list()
+  const res = await eventApi.list({ page_size: 200 })
   myEvents.value = res.results || res
   if (filterEvent.value) loadParticipants()
   else if (myEvents.value.length) {

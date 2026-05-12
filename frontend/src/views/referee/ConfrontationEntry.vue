@@ -199,7 +199,7 @@ async function submitMatch() {
 }
 
 onMounted(async () => {
-  const res = await eventApi.list()
+  const res = await eventApi.list({ page_size: 200 })
   confrontEvents.value = (res.results || res).filter(e => e.event_type === 'team_confrontation')
 })
 </script>
