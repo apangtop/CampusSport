@@ -4,8 +4,9 @@
       <template #header>
         <div class="card-header">
           <span style="font-size:16px;font-weight:600">学生管理</span>
-          <div style="display:flex;gap:8px">
+          <div style="display:flex;gap:8px;align-items:center">
             <el-button @click="downloadTemplate">下载导入模板</el-button>
+            <ClassSelector v-model="importClass" :clearable="true" year-width="120px" class-width="90px" style="margin-right:4px" />
             <el-upload :before-upload="handleImport" :show-file-list="false" accept=".xlsx,.xls">
               <el-button type="success">
                 <el-icon><Upload /></el-icon> Excel批量导入
@@ -210,9 +211,12 @@ async function deleteStudent(row) {
   load()
 }
 
+const importClass = ref('')
+
 async function handleImport(file) {
   const formData = new FormData()
   formData.append('file', file)
+  if (importClass.value) formData.append('class_name', importClass.value)
   const res = await importApi.importExcel(formData)
   importResult.value = res
   importResultVisible.value = true

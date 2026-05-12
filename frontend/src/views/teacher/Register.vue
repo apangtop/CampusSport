@@ -360,7 +360,7 @@ async function loadEvents() {
 }
 
 async function loadStudents() {
-  const res = await studentApi.list({ class_name: auth.user.class_name })
+  const res = await studentApi.list({ class_name: auth.user.class_name, page_size: 200 })
   students.value = res.results || res
 }
 
