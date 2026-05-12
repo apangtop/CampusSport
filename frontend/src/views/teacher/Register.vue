@@ -281,21 +281,33 @@ const selectedEventInfo = computed(() => {
 
 const stageLabel = (s) => ({ single:'直接决赛', two:'初赛+决赛', three:'三阶段' })[s] || s
 
+const registeredStudentIds = computed(() => {
+  if (!selectedEvent.value) return new Set()
+  return new Set(
+    myRegistrations.value
+      .filter(r => r.event === selectedEvent.value && r.status !== 'cancelled')
+      .map(r => r.student)
+  )
+})
+
 const eligibleStudents = computed(() => {
   const ev = events.value.find(e => e.id === selectedEvent.value)
   const max = currentMeet.value?.max_events_per_person || 3
+  const regIds = registeredStudentIds.value
   return students.value.map(s => {
     const regCount = studentRegCounts.value[s.id] || 0
+    const alreadyInEvent = regIds.has(s.id)
     const wrongGender = ev && ev.gender !== 'mixed' && s.gender !== ev.gender
     const wrongGrade = ev && ev.grade && s.grade !== ev.grade
     let reason = ''
-    if (wrongGender) reason = '性别不符'
+    if (alreadyInEvent) reason = '已报本项目'
+    else if (wrongGender) reason = '性别不符'
     else if (wrongGrade) reason = '年级不符'
     else if (regCount >= max) reason = `已报${regCount}项`
     return {
       ...s,
       _regCount: regCount,
-      _disabled: regCount >= max || wrongGender || wrongGrade,
+      _disabled: alreadyInEvent || regCount >= max || wrongGender || wrongGrade,
       _reason: reason
     }
   })
@@ -333,7 +345,7 @@ function onModeChange() {
 }
 
 async function onEventSelect() {
-  selectedStudents.value = []
+  selectedStudents.value = [...registeredStudentIds.value]
 }
 
 async function loadEvents() {
