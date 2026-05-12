@@ -153,11 +153,7 @@ const filteredEvents = computed(() => {
 })
 
 const canAutoAssign = computed(() => {
-  if (!filterEvent.value) return false
-  if (regMode.value === 'team') {
-    return teamRegs.value.some(r => r.status === 'approved')
-  }
-  return registrations.value.some(r => r.status === 'approved')
+  return !!filterEvent.value
 })
 
 const availTypes = computed(() => {
