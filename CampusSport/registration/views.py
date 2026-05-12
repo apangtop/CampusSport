@@ -429,3 +429,13 @@ class TeamRegistrationViewSet(viewsets.ModelViewSet):
         tr.status = 'rejected'
         tr.save()
         return Response({'detail': '已拒绝'})
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAdmin])
+    def approve_all(self, request):
+        """一键审核所有提交的团体报名"""
+        event_id = request.data.get('event_id')
+        qs = TeamRegistration.objects.filter(status='submitted')
+        if event_id:
+            qs = qs.filter(event_id=event_id)
+        count = qs.update(status='approved')
+        return Response({'detail': f'已审核 {count} 条团体报名'})

@@ -78,7 +78,8 @@ export const teamRegistrationApi = {
   delete: id => request.delete(`/team-registrations/${id}/`),
   cancel: id => request.post(`/team-registrations/${id}/cancel/`),
   approve: id => request.post(`/team-registrations/${id}/approve/`),
-  reject: id => request.post(`/team-registrations/${id}/reject/`)
+  reject: id => request.post(`/team-registrations/${id}/reject/`),
+  approveAll: data => request.post('/team-registrations/approve_all/', data)
 }
 
 // ===== 成绩 =====
