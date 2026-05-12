@@ -55,15 +55,21 @@ class EventSerializer(serializers.ModelSerializer):
 class EventListSerializer(serializers.ModelSerializer):
     referee_name = serializers.CharField(source='referee.real_name', read_only=True, allow_null=True)
     registration_count = serializers.SerializerMethodField()
+    team_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
         fields = ['id', 'name', 'event_type', 'gender', 'grade', 'result_unit', 'stage_type',
                   'max_per_class', 'max_per_person', 'team_size', 'referee', 'referee_name',
-                  'score_multiplier', 'registration_count']
+                  'score_multiplier', 'registration_count', 'team_count']
 
     def get_registration_count(self, obj):
         return obj.registrations.filter(status__in=['submitted', 'approved']).count()
+
+    def get_team_count(self, obj):
+        if obj.event_type in ('relay', 'team_confrontation'):
+            return obj.team_registrations.filter(status__in=['submitted', 'approved']).count()
+        return 0
 
 
 class SportsMeetSerializer(serializers.ModelSerializer):

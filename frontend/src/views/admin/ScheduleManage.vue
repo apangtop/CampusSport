@@ -22,7 +22,15 @@
               <el-tag v-if="ev.grade" size="small" type="warning" style="margin-left:4px">{{ ev.grade }}</el-tag>
             </div>
             <div class="event-info-line">👤 {{ ev.referee_name || '未分配' }}</div>
-            <div class="event-info-line">📋 {{ ev.registration_count || 0 }}人报名 · {{ getScheduleCount(ev.id) }}条赛程</div>
+            <div class="event-info-line">
+              <template v-if="ev.event_type === 'relay' || ev.event_type === 'team_confrontation'">
+                📋 {{ ev.team_count || 0 }} 队报名
+              </template>
+              <template v-else>
+                📋 {{ ev.registration_count || 0 }} 人报名
+              </template>
+              · {{ scheduleCounts[ev.id] || 0 }} 条赛程
+            </div>
           </el-card>
         </div>
       </div>
@@ -185,9 +193,13 @@ const groupedEvents = computed(() => {
   return Object.values(groups)
 })
 
-function getScheduleCount(eventId) {
-  return totalSchedules.value.filter(s => s.event === eventId).length
-}
+const scheduleCounts = computed(() => {
+  const counts = {}
+  totalSchedules.value.forEach(s => {
+    counts[s.event] = (counts[s.event] || 0) + 1
+  })
+  return counts
+})
 
 async function openEventDetail(ev) {
   detailEvent.value = ev
