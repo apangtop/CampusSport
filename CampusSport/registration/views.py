@@ -404,3 +404,14 @@ class TeamRegistrationViewSet(viewsets.ModelViewSet):
         if instance.event.sports_meet.status in ('ongoing', 'finished'):
             raise PermissionDenied('进行中或已结束的运动会不能删除团体报名')
         instance.delete()
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminOrTeacher])
+    def cancel(self, request, pk=None):
+        tr = self.get_object()
+        user = request.user
+        if user.role == 'teacher' and tr.class_name != user.class_name:
+            return Response({'detail': '只能取消本班报名'}, status=status.HTTP_403_FORBIDDEN)
+        if tr.event.sports_meet.status not in ('registration',) and user.role != 'admin':
+            return Response({'detail': '报名已截止，无法取消'}, status=status.HTTP_400_BAD_REQUEST)
+        tr.delete()
+        return Response({'detail': '已取消团体报名'})

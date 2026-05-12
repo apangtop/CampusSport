@@ -195,6 +195,15 @@
                       </el-tag>
                     </template>
                   </el-table-column>
+                  <el-table-column label="操作" width="70" align="center">
+                    <template #default="{ row }">
+                      <el-popconfirm title="确认取消此团体报名？" @confirm="cancelTeamReg(row)">
+                        <template #reference>
+                          <el-button link type="danger" size="small">取消</el-button>
+                        </template>
+                      </el-popconfirm>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </el-card>
             </el-col>
@@ -417,6 +426,14 @@ async function cancelReg(row) {
   await loadEvents()
   selectedEvent.value = eid
   selectedStudents.value = []
+}
+
+async function cancelTeamReg(row) {
+  await teamRegistrationApi.cancel(row.id)
+  ElMessage.success('已取消团体报名')
+  teamMembers.value = []
+  selectedTeamEvent.value = ''
+  loadTeamRegistrations()
 }
 
 async function submitTeamRegister() {
