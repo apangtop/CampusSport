@@ -69,7 +69,7 @@ async function load() {
   loading.value = true
   const params = { sports_meet: filterMeet.value }
   if (filterGrade.value) params.grade = filterGrade.value
-  const res = await pointsApi.list(params)
+  const res = await pointsApi.list({ ...params, page_size: 200 })
   points.value = res.results || res
   loading.value = false
 }

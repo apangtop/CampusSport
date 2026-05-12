@@ -44,7 +44,7 @@ const filterMeet = ref('')
 async function load() {
   if (!filterMeet.value) return
   loading.value = true
-  const res = await pointsApi.list({ sports_meet: filterMeet.value })
+  const res = await pointsApi.list({ sports_meet: filterMeet.value, page_size: 200 })
   points.value = res.results || res
   loading.value = false
 }

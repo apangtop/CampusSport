@@ -180,8 +180,8 @@ async function load() {
   const params = { class_name: auth.user?.class_name }
   if (filterMeet.value) params.sports_meet = filterMeet.value
   const [regRes, teamRes, evRes] = await Promise.all([
-    registrationApi.list(params),
-    teamRegistrationApi.list({ class_name: auth.user?.class_name, ...(filterMeet.value ? { sports_meet: filterMeet.value } : {}) }),
+    registrationApi.list({ ...params, page_size: 200 }),
+    teamRegistrationApi.list({ class_name: auth.user?.class_name, ...(filterMeet.value ? { sports_meet: filterMeet.value } : {}), page_size: 200 }),
     filterMeet.value ? eventApi.list({ sports_meet: filterMeet.value, page_size: 200 }) : Promise.resolve({ results: [] })
   ])
   regs.value = regRes.results || regRes

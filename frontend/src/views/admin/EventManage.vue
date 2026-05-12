@@ -188,7 +188,7 @@ const rules = {
 
 async function load() {
   loading.value = true
-  const params = { sports_meet: meetId }
+  const params = { sports_meet: meetId, page_size: 500 }
   if (filterType.value) params.type = filterType.value
   const res = await eventApi.list(params)
   events.value = res.results || res

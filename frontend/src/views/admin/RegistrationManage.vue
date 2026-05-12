@@ -110,7 +110,7 @@ async function updateLane(regId, val) {
 }
 
 async function reloadEvents() {
-  const params = { sports_meet: meetId }
+  const params = { sports_meet: meetId, page_size: 500 }
   if (filterStatus.value) params.reg_status = filterStatus.value
   if (filterType.value) params.type = filterType.value
   try {
@@ -134,7 +134,7 @@ async function load() {
     if (filterEvent.value) params.event = filterEvent.value
     if (filterStatus.value) params.status = filterStatus.value
     if (filterClass.value) params.class_name = filterClass.value
-    const res = await registrationApi.list(params)
+    const res = await registrationApi.list({ ...params, page_size: 1000 })
     registrations.value = res.results || res
     registrations.value.forEach(r => { laneEdits[r.id] = r.lane || '' })
   } catch {}

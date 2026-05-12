@@ -58,7 +58,7 @@ async function load() {
   loading.value = true
   const params = { sports_meet: filterMeet.value, class_name: auth.user?.class_name }
   if (filterStage.value) params.stage = filterStage.value
-  const res = await scoreApi.list(params)
+  const res = await scoreApi.list({ ...params, page_size: 500 })
   scores.value = (res.results || res).sort((a, b) => (a.rank || 999) - (b.rank || 999))
   loading.value = false
 }

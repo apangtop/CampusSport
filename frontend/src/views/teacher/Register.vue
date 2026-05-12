@@ -388,7 +388,7 @@ async function loadStudents() {
 async function loadTeamRegistrations() {
   const params = { class_name: auth.user.class_name }
   if (selectedMeet.value) params.sports_meet = selectedMeet.value
-  const res = await teamRegistrationApi.list(params)
+  const res = await teamRegistrationApi.list({ ...params, page_size: 200 })
   const data = res.results || res
   data.forEach(tr => {
     if (tr.event) tr.event_name = events.value.find(e => e.id === tr.event)?.name || ''

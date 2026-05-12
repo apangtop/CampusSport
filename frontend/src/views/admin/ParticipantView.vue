@@ -154,7 +154,7 @@ async function load() {
   if (!filterEvent.value) return
   loading.value = true
   if (isTeamEvent.value) {
-    const res = await teamRegistrationApi.list({ event: filterEvent.value })
+    const res = await teamRegistrationApi.list({ event: filterEvent.value, page_size: 200 })
     teamParticipants.value = res.results || res
     participants.value = []
   } else {

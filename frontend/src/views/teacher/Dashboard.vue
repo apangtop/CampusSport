@@ -110,7 +110,7 @@ async function loadAll() {
   loading.value = true
   const params = { class_name: auth.user?.class_name }
   if (selectedMeet.value) params.sports_meet = selectedMeet.value
-  const res = await registrationApi.list(params)
+  const res = await registrationApi.list({ ...params, page_size: 500 })
   allRegs.value = res.results || res
   loading.value = false
 }

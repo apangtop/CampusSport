@@ -117,9 +117,9 @@ const teamName = id => teams.value.find(t => t.id === id)?.class_name || id
 
 async function loadTeams() {
   if (!filterEvent.value) return
-  const res = await teamRegistrationApi.list({ event: filterEvent.value })
+  const res = await teamRegistrationApi.list({ event: filterEvent.value, page_size: 200 })
   teams.value = res.results || res
-  const scRes = await teamScoreApi.list({ event: filterEvent.value })
+  const scRes = await teamScoreApi.list({ event: filterEvent.value, page_size: 200 })
   teamScores.value = scRes.results || scRes
 }
 
