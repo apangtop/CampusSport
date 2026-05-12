@@ -5,12 +5,16 @@
       <template #header>
         <div class="card-header">
           <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <el-radio-group v-model="regMode" size="small" @change="onModeChange">
+              <el-radio-button label="individual">个人项目</el-radio-button>
+              <el-radio-button label="team">团体项目</el-radio-button>
+            </el-radio-group>
             <el-select v-model="filterStatus" placeholder="筛选状态" clearable style="width:110px">
               <el-option label="未审核" value="submitted" />
               <el-option label="已审核" value="approved" />
               <el-option label="已拒绝" value="rejected" />
             </el-select>
-            <el-select v-model="filterType" placeholder="项目分类" clearable style="width:100px">
+            <el-select v-if="regMode === 'individual'" v-model="filterType" placeholder="项目分类" clearable style="width:100px">
               <el-option label="全部" value="" />
               <el-option v-if="availTypes.has('track')" label="径赛" value="track" />
               <el-option v-if="availTypes.has('field')" label="田赛" value="field" />
@@ -21,14 +25,15 @@
               <el-option v-for="e in filteredEvents" :key="e.id" :label="e.name" :value="e.id" />
             </el-select>
           </div>
-          <div style="display:flex;gap:8px">
+          <div style="display:flex;gap:8px" v-if="regMode === 'individual'">
             <el-button type="success" @click="approveAll">一键审核全部</el-button>
             <el-button type="warning" @click="autoAssign" :disabled="!filterEvent">自动分组道次</el-button>
           </div>
         </div>
       </template>
-      <el-table :data="registrations" v-loading="loading" @selection-change="selection = $event">
-        <el-table-column type="selection" width="50" />
+
+      <!-- 个人项目报名 -->
+      <el-table v-if="regMode === 'individual'" :data="registrations" v-loading="loading">
         <el-table-column prop="student_name" label="学生姓名" width="100" />
         <el-table-column prop="student_class" label="班级" width="110" />
         <el-table-column prop="event_name" label="报名项目" min-width="130" />
@@ -55,6 +60,36 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 团体项目报名 -->
+      <el-table v-else :data="teamRegs" v-loading="loading">
+        <el-table-column prop="class_name" label="班级" width="120" />
+        <el-table-column label="比赛项目" min-width="160">
+          <template #default="{ row }">{{ teamEventName(row.event) }}</template>
+        </el-table-column>
+        <el-table-column label="队员" min-width="200">
+          <template #default="{ row }">
+            <el-tag v-for="m in (row.members_detail || [])" :key="m.id" size="small" style="margin:1px">{{ m.name }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="status" label="状态" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'submitted' ? 'danger' : row.status === 'approved' ? 'success' : 'warning'" size="small">
+              {{ statusLabel(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="报名时间" width="140">
+          <template #default="{ row }">{{ shortDatetime(row.created_at) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" align="center">
+          <template #default="{ row }">
+            <el-button v-if="row.status === 'submitted'" link type="success" @click="approveTeam(row)">审核</el-button>
+            <el-button v-if="row.status === 'submitted'" link type="danger" @click="rejectTeam(row)">拒绝</el-button>
+            <el-button link type="danger" @click="deleteTeam(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </el-card>
   </div>
 </template>
@@ -63,20 +98,17 @@
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { registrationApi, eventApi } from '@/api'
+import { registrationApi, teamRegistrationApi, eventApi } from '@/api'
 import { shortDatetime, needsLanes } from '@/utils/format'
 
-function eventNeedsLane(eventId) {
-  const ev = events.value.find(e => e.id === eventId)
-  return ev ? needsLanes(ev.event_type) : true
-}
 import ClassSelector from '@/components/ClassSelector.vue'
 
 const route = useRoute()
 const meetId = route.params.id
+const regMode = ref('individual')
 const registrations = ref([])
+const teamRegs = ref([])
 const events = ref([])
-const selection = ref([])
 const loading = ref(false)
 const filterEvent = ref('')
 const filterStatus = ref('')
@@ -85,7 +117,11 @@ const filterClass = ref('')
 
 const filteredEvents = computed(() => {
   let list = events.value
-  if (filterType.value) list = list.filter(e => e.event_type === filterType.value)
+  if (regMode.value === 'team') {
+    list = list.filter(e => ['relay', 'team_confrontation'].includes(e.event_type))
+  } else if (filterType.value) {
+    list = list.filter(e => e.event_type === filterType.value)
+  }
   if (filterClass.value && filterClass.value.endsWith('级')) {
     list = list.filter(e => e.grade === filterClass.value)
   }
@@ -105,38 +141,49 @@ const statusTypeMap = { submitted:'danger', approved:'success', rejected:'warnin
 const statusLabel = s => statusMap[s] || s
 const statusType = s => statusTypeMap[s] || ''
 
+function teamEventName(eventId) {
+  return events.value.find(e => e.id === eventId)?.name || ''
+}
+
+function eventNeedsLane(eventId) {
+  const ev = events.value.find(e => e.id === eventId)
+  return ev ? needsLanes(ev.event_type) : true
+}
+
+function onModeChange() {
+  filterEvent.value = ''
+  filterType.value = ''
+  load()
+}
+
 async function updateLane(regId, val) {
   await registrationApi.update(regId, { lane: val ? parseInt(val) : null })
 }
 
-async function reloadEvents() {
-  const params = { sports_meet: meetId, page_size: 500 }
-  if (filterStatus.value) params.reg_status = filterStatus.value
-  if (filterType.value) params.type = filterType.value
-  try {
-    const evRes = await eventApi.list(params)
-    events.value = evRes.results || evRes
-  } catch {}
-}
-
-watch([filterStatus, filterType, filterClass], async () => {
+watch([filterStatus, filterClass], () => {
   filterEvent.value = ''
-  try {
-    await reloadEvents()
-  } catch {}
   load()
 })
 
 async function load() {
   loading.value = true
   try {
-    const params = { sports_meet: meetId }
-    if (filterEvent.value) params.event = filterEvent.value
-    if (filterStatus.value) params.status = filterStatus.value
-    if (filterClass.value) params.class_name = filterClass.value
-    const res = await registrationApi.list({ ...params, page_size: 1000 })
-    registrations.value = res.results || res
-    registrations.value.forEach(r => { laneEdits[r.id] = r.lane || '' })
+    if (regMode.value === 'team') {
+      const params = { sports_meet: meetId, page_size: 500 }
+      if (filterEvent.value) params.event = filterEvent.value
+      if (filterStatus.value) params.status = filterStatus.value
+      if (filterClass.value) params.class_name = filterClass.value
+      const res = await teamRegistrationApi.list(params)
+      teamRegs.value = res.results || res
+    } else {
+      const params = { sports_meet: meetId }
+      if (filterEvent.value) params.event = filterEvent.value
+      if (filterStatus.value) params.status = filterStatus.value
+      if (filterClass.value) params.class_name = filterClass.value
+      const res = await registrationApi.list({ ...params, page_size: 1000 })
+      registrations.value = res.results || res
+      registrations.value.forEach(r => { laneEdits[r.id] = r.lane || '' })
+    }
   } catch {}
   loading.value = false
 }
@@ -185,6 +232,25 @@ async function autoAssign() {
 async function deleteReg(row) {
   await ElMessageBox.confirm('确认删除此报名？', '提示', { type: 'warning' })
   await registrationApi.delete(row.id)
+  ElMessage.success('已删除')
+  load()
+}
+
+async function approveTeam(row) {
+  await teamRegistrationApi.approve(row.id)
+  ElMessage.success('审核通过')
+  load()
+}
+
+async function rejectTeam(row) {
+  await teamRegistrationApi.reject(row.id)
+  ElMessage.success('已拒绝')
+  load()
+}
+
+async function deleteTeam(row) {
+  await ElMessageBox.confirm('确认删除此团体报名？', '提示', { type: 'warning' })
+  await teamRegistrationApi.delete(row.id)
   ElMessage.success('已删除')
   load()
 }

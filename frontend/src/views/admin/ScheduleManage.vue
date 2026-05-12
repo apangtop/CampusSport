@@ -40,14 +40,23 @@
         <el-descriptions-item label="已报名">{{ participants.length || detailEvent.registration_count || 0 }} 人</el-descriptions-item>
       </el-descriptions>
 
-      <!-- 参赛学生名单 -->
+      <!-- 参赛名单 -->
       <div style="margin-bottom:16px">
-        <div style="font-weight:600;margin-bottom:8px">参赛学生</div>
-        <div v-if="participants.length" style="display:flex;flex-wrap:wrap;gap:4px;max-height:120px;overflow-y:auto">
+        <div style="font-weight:600;margin-bottom:8px">
+          {{ isTeamEvent ? '参赛队伍' : '参赛学生' }}
+        </div>
+        <div v-if="participants.length && !isTeamEvent" style="display:flex;flex-wrap:wrap;gap:4px;max-height:120px;overflow-y:auto">
           <el-tag v-for="p in participants" :key="p.id" size="small" :type="p.status === 'approved' ? 'success' : 'warning'">
             {{ p.student?.name }}({{ p.student?.class_name }})
             <span v-if="p.lane" style="margin-left:4px;opacity:0.7">{{ needsLanes(detailEvent?.event_type) ? p.lane + '道' : p.lane }}</span>
           </el-tag>
+        </div>
+        <div v-else-if="participants.length && isTeamEvent">
+          <div v-for="t in participants" :key="t.id" style="margin:4px 0">
+            <el-tag size="small" :type="t.status === 'approved' ? 'success' : 'warning'" style="margin-right:8px">{{ t.class_name }}</el-tag>
+            <el-tag v-for="m in (t.members_detail || [])" :key="m.id" size="small" type="info" style="margin:1px">{{ m.name }}</el-tag>
+            <el-tag v-if="t.lane" size="small" type="danger" style="margin-left:4px">{{ t.lane }}道</el-tag>
+          </div>
         </div>
         <span v-else style="color:#ccc;font-size:13px">暂无报名</span>
       </div>
@@ -145,6 +154,9 @@ const schSaving = ref(false)
 const detailVisible = ref(false)
 const detailEvent = ref(null)
 const participants = ref([])
+const isTeamEvent = computed(() => {
+  return detailEvent.value && ['relay', 'team_confrontation'].includes(detailEvent.value.event_type)
+})
 
 const schDialogVisible = ref(false)
 const schEditId = ref(null)

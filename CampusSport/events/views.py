@@ -113,14 +113,21 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def participants(self, request, pk=None):
-        """获取项目参赛名单"""
+        """获取项目参赛名单（含个人和团体）"""
         event = self.get_object()
-        from registration.models import Registration
-        from registration.serializers import RegistrationDetailSerializer
-        registrations = Registration.objects.filter(
-            event=event, status__in=['submitted', 'approved']
-        ).select_related('student', 'schedule')
-        serializer = RegistrationDetailSerializer(registrations, many=True)
+        from registration.models import Registration, TeamRegistration
+        from registration.serializers import RegistrationDetailSerializer, TeamRegistrationSerializer
+        is_team = event.event_type in ('relay', 'team_confrontation')
+        if is_team:
+            teams = TeamRegistration.objects.filter(
+                event=event, status__in=['submitted', 'approved']
+            ).prefetch_related('members')
+            serializer = TeamRegistrationSerializer(teams, many=True)
+        else:
+            registrations = Registration.objects.filter(
+                event=event, status__in=['submitted', 'approved']
+            ).select_related('student', 'schedule')
+            serializer = RegistrationDetailSerializer(registrations, many=True)
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdmin])

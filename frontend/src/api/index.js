@@ -76,7 +76,9 @@ export const teamRegistrationApi = {
   create: data => request.post('/team-registrations/', data),
   update: (id, data) => request.patch(`/team-registrations/${id}/`, data),
   delete: id => request.delete(`/team-registrations/${id}/`),
-  cancel: id => request.post(`/team-registrations/${id}/cancel/`)
+  cancel: id => request.post(`/team-registrations/${id}/cancel/`),
+  approve: id => request.post(`/team-registrations/${id}/approve/`),
+  reject: id => request.post(`/team-registrations/${id}/reject/`)
 }
 
 // ===== 成绩 =====

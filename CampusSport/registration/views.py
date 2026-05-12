@@ -415,3 +415,17 @@ class TeamRegistrationViewSet(viewsets.ModelViewSet):
             return Response({'detail': '报名已截止，无法取消'}, status=status.HTTP_400_BAD_REQUEST)
         tr.delete()
         return Response({'detail': '已取消团体报名'})
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdmin])
+    def approve(self, request, pk=None):
+        tr = self.get_object()
+        tr.status = 'approved'
+        tr.save()
+        return Response({'detail': '已审核通过'})
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdmin])
+    def reject(self, request, pk=None):
+        tr = self.get_object()
+        tr.status = 'rejected'
+        tr.save()
+        return Response({'detail': '已拒绝'})
