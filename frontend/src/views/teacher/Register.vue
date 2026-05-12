@@ -362,7 +362,7 @@ async function loadEvents() {
   eventsLoading.value = true
   const [evRes, regRes] = await Promise.all([
     eventApi.list({ sports_meet: selectedMeet.value, page_size: 200 }),
-    registrationApi.list({ sports_meet: selectedMeet.value, class_name: auth.user.class_name })
+    registrationApi.list({ sports_meet: selectedMeet.value, class_name: auth.user.class_name, page_size: 200 })
   ])
   events.value = evRes.results || evRes
   myRegistrations.value = regRes.results || regRes
