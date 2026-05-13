@@ -182,10 +182,9 @@ def build_order_book_word(sports_meet):
 
     events = list(sports_meet.events.prefetch_related('schedules').select_related('referee').all())
     # 按最早赛程时间排序，没有赛程的排最后
-    fallback = datetime(2099, 1, 1, tzinfo=dj_timezone.utc)
     def earliest_time(ev):
         times = [s.scheduled_time for s in ev.schedules.all() if s.scheduled_time]
-        return (False, min(times)) if times else (True, fallback)
+        return (False, min(times)) if times else (True, datetime(2099, 1, 1))
     events.sort(key=earliest_time)
     for idx, event in enumerate(events, 1):
         p = doc.add_paragraph()
@@ -209,7 +208,7 @@ def build_order_book_word(sports_meet):
 
     overview_rows = []
     for event in events:
-        scheds = sorted(event.schedules.all(), key=lambda s: s.scheduled_time or fallback)
+        scheds = list(event.schedules.all())
         referee_name = event.referee.real_name if event.referee else '待定'
         if not scheds:
             overview_rows.append([
@@ -259,7 +258,7 @@ def build_order_book_word(sports_meet):
 
         # 项目信息行
         referee_name = event.referee.real_name if event.referee else '待定'
-        scheds = sorted(event.schedules.all(), key=lambda s: s.scheduled_time or fallback)
+        scheds = event.schedules.all()
         times = [dj_timezone.localtime(s.scheduled_time).strftime('%m/%d %H:%M') for s in scheds if s.scheduled_time]
         venues = list(set(s.venue for s in scheds if s.venue))
         time_str = '、'.join(times) if times else '待定'
