@@ -3,6 +3,7 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.http import HttpResponse
+from datetime import datetime
 from django.utils import timezone as dj_timezone
 
 # Word
@@ -179,7 +180,12 @@ def build_order_book_word(sports_meet):
     add_heading_para(doc, '目  录', font_size=16, left_bar=False)
     doc.add_paragraph()
 
-    events = sports_meet.events.prefetch_related('schedules').select_related('referee').all()
+    events = list(sports_meet.events.prefetch_related('schedules').select_related('referee').all())
+    # 按最早赛程时间排序，没有赛程的排最后
+    events.sort(key=lambda e: (
+        e.schedules.first() is None,
+        e.schedules.first().scheduled_time if e.schedules.first() and e.schedules.first().scheduled_time else datetime(2099, 1, 1)
+    ))
     for idx, event in enumerate(events, 1):
         p = doc.add_paragraph()
         p.paragraph_format.space_after = Pt(3)
