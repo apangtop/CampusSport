@@ -182,10 +182,10 @@ def build_order_book_word(sports_meet):
 
     events = list(sports_meet.events.prefetch_related('schedules').select_related('referee').all())
     # 按最早赛程时间排序，没有赛程的排最后
-    events.sort(key=lambda e: (
-        e.schedules.first() is None,
-        e.schedules.first().scheduled_time if e.schedules.first() and e.schedules.first().scheduled_time else datetime(2099, 1, 1)
-    ))
+    def earliest_time(ev):
+        times = [s.scheduled_time for s in ev.schedules.all() if s.scheduled_time]
+        return (False, min(times)) if times else (True, datetime(2099, 1, 1))
+    events.sort(key=earliest_time)
     for idx, event in enumerate(events, 1):
         p = doc.add_paragraph()
         p.paragraph_format.space_after = Pt(3)
