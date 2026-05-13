@@ -3,6 +3,7 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.http import HttpResponse
+from django.utils import timezone as dj_timezone
 
 # Word
 from docx import Document
@@ -209,7 +210,7 @@ def build_order_book_word(sports_meet):
             ])
         else:
             for sch in scheds:
-                time_str = sch.scheduled_time.strftime('%Y-%m-%d %H:%M') if sch.scheduled_time else '-'
+                time_str = dj_timezone.localtime(sch.scheduled_time).strftime('%Y-%m-%d %H:%M') if sch.scheduled_time else '-'
                 overview_rows.append([
                     event.name, event.get_gender_display(),
                     sch.get_stage_display(), f'第{sch.group_number}组',
@@ -252,7 +253,7 @@ def build_order_book_word(sports_meet):
         # 项目信息行
         referee_name = event.referee.real_name if event.referee else '待定'
         scheds = event.schedules.all()
-        times = [s.scheduled_time.strftime('%m/%d %H:%M') for s in scheds if s.scheduled_time]
+        times = [dj_timezone.localtime(s.scheduled_time).strftime('%m/%d %H:%M') for s in scheds if s.scheduled_time]
         venues = list(set(s.venue for s in scheds if s.venue))
         time_str = '、'.join(times) if times else '待定'
         venue_str = '、'.join(venues) if venues else '待定'
@@ -360,7 +361,7 @@ def build_order_book_word(sports_meet):
                 grp_regs = grp['regs']
 
                 if sch:
-                    t = sch.scheduled_time.strftime('%m/%d %H:%M') if sch.scheduled_time else '待定'
+                    t = dj_timezone.localtime(sch.scheduled_time).strftime('%m/%d %H:%M') if sch.scheduled_time else '待定'
                     sub_title = f'【{sch.get_stage_display()} 第{sch.group_number}组】  {t}  {sch.venue or ""}'
                 else:
                     sub_title = '【参赛名单】'
