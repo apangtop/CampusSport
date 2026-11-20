@@ -2,6 +2,17 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 
+class SchoolProfile(models.Model):
+    """每校独立安装的学校配置；不是多租户边界。"""
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    school_name = models.CharField('学校名称', max_length=100, blank=True)
+    system_name = models.CharField('系统名称', max_length=50, default='CampusSport')
+    classes = models.JSONField('班级与年级', default=list, blank=True)
+
+    class Meta:
+        constraints = [models.CheckConstraint(check=models.Q(id=1), name='school_profile_singleton')]
+
+
 class User(AbstractUser):
     ROLE_CHOICES = [
         ('admin', '体育老师'),

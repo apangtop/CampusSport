@@ -8,7 +8,15 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-uqbxjx6nn21cg1xxnduf8
 
 DEBUG = os.environ.get('DEBUG', 'True').lower() in ('true', '1', 'yes')
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*' if DEBUG else '').split(',')
+if not DEBUG:
+    from django.core.exceptions import ImproperlyConfigured
+    if not os.environ.get('SECRET_KEY') or SECRET_KEY.startswith('django-insecure-') or len(SECRET_KEY) < 32:
+        raise ImproperlyConfigured('生产环境必须配置至少32字符的 SECRET_KEY')
+    if not any(ALLOWED_HOSTS) or '*' in ALLOWED_HOSTS:
+        raise ImproperlyConfigured('生产环境必须显式配置 ALLOWED_HOSTS')
+    if not os.environ.get('DB_PASSWORD'):
+        raise ImproperlyConfigured('生产环境必须配置 DB_PASSWORD')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -73,7 +81,9 @@ DATABASES = {
     }
 }
 
-AUTH_PASSWORD_VALIDATORS = []
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator', 'OPTIONS': {'min_length': 8}},
+]
 
 LANGUAGE_CODE = 'zh-hans'
 TIME_ZONE = 'Asia/Shanghai'
@@ -90,6 +100,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'accounts.User'
 
 REST_FRAMEWORK = {
+    'EXCEPTION_HANDLER': 'CampusSport.exceptions.exception_handler',
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
@@ -100,10 +111,12 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
+    'CHECK_REVOKE_TOKEN': True,
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = DEBUG
+CORS_ALLOWED_ORIGINS = [origin for origin in os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',') if origin]
 CORS_ALLOW_CREDENTIALS = True

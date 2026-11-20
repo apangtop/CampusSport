@@ -50,16 +50,16 @@
                       <span>{{ grp.approved }}/{{ grp.max }} 已审核</span>
                       <span v-if="grp.pending">+{{ grp.pending }} 待审</span>
                     </div>
-                    <el-progress :percentage="Math.round(grp.approved / grp.max * 100)" :color="grp.approved >= grp.max ? '#67c23a' : '#409eff'" :stroke-width="8" />
+                    <el-progress :percentage="grp.max > 0 ? Math.min(100, Math.round(grp.total / grp.max * 100)) : 0" :color="grp.total >= grp.max ? '#67c23a' : '#409eff'" :stroke-width="8" />
                   </div>
-                  <el-tag v-if="grp.approved >= grp.max" type="success" size="small">已满</el-tag>
+                  <el-tag v-if="grp.total >= grp.max" type="success" size="small">已满</el-tag>
                   <el-tag v-else-if="grp.total === 0" type="info" size="small">未报</el-tag>
                 </div>
               </div>
               <!-- 学生名单 -->
               <div v-if="grp.students.length" style="display:flex;flex-wrap:wrap;gap:4px">
                 <el-tag v-for="r in grp.students" :key="r.id" size="small"
-                  :type="r.status === 'approved' ? 'success' : r.status === 'rejected' ? 'danger' : 'warning'"
+                  :type="r.status === 'approved' ? 'success' : r.status === 'rejected' ? 'danger' : r.status === 'cancelled' ? 'info' : 'warning'"
                   :effect="r.status === 'approved' ? 'light' : 'plain'"
                   style="cursor:pointer"
                   @click="showRegDetail(r)">
@@ -84,7 +84,7 @@
                 {{ (t.members_detail || []).map(m => m.name).join('、') || '-' }}
               </div>
               <el-tag :type="t.status === 'approved' ? 'success' : 'warning'" size="small" style="margin-top:4px">
-                {{ t.status === 'approved' ? '已审核' : '待审核' }}
+                {{ registrationStatusLabel(t.status) }}
               </el-tag>
             </div>
           </div>
@@ -105,6 +105,7 @@
 </template>
 
 <script setup>
+import { isActiveRegistration, loadAllPages, registrationStatusLabel } from '@/utils/registration'
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { registrationApi, teamRegistrationApi, meetApi, eventApi } from '@/api'
@@ -124,7 +125,7 @@ const typeLabel = t => ({ track:'径赛', field:'田赛', relay:'接力' })[t] |
 const statCards = computed(() => {
   const list = regs.value
   return [
-    { label: '报名项数', value: list.filter(r => r.status !== 'cancelled').length, color: '#1a6db5' },
+    { label: '报名项数', value: list.filter(isActiveRegistration).length, color: '#1a6db5' },
     { label: '已审核', value: list.filter(r => r.status === 'approved').length, color: '#67c23a' },
     { label: '待审核', value: list.filter(r => r.status === 'submitted').length, color: '#e6a23c' },
     { label: '已拒绝', value: list.filter(r => r.status === 'rejected').length, color: '#f56c6c' },
@@ -148,7 +149,7 @@ const eventGroups = computed(() => {
   // 填入报名数据
   regs.value.forEach(r => {
     if (!map[r.event]) return
-    map[r.event].total++
+    if (isActiveRegistration(r)) map[r.event].total++
     if (r.status === 'approved') map[r.event].approved++
     else if (r.status === 'submitted') map[r.event].pending++
     else if (r.status === 'rejected') map[r.event].rejected++
@@ -160,13 +161,13 @@ const eventGroups = computed(() => {
   // 类型筛选
   if (filterType.value) list = list.filter(g => g.type === filterType.value)
   // 报名状态筛选
-  if (filterFull.value === 'open') list = list.filter(g => g.approved < g.max)
-  else if (filterFull.value === 'full') list = list.filter(g => g.approved >= g.max)
+  if (filterFull.value === 'open') list = list.filter(g => g.total < g.max)
+  else if (filterFull.value === 'full') list = list.filter(g => g.total >= g.max)
   else if (filterFull.value === 'empty') list = list.filter(g => g.total === 0)
 
   return list.sort((a, b) => {
-    if (a.approved < a.max && b.approved >= b.max) return -1
-    if (a.approved >= a.max && b.approved < b.max) return 1
+    if (a.total < a.max && b.total >= b.max) return -1
+    if (a.total >= a.max && b.total < b.max) return 1
     return b.total - a.total
   })
 })
@@ -175,23 +176,27 @@ function showRegDetail(r) {
   // 简单提示
 }
 
+let loadVersion = 0
 async function load() {
+  const version = ++loadVersion
   loading.value = true
+  try {
   const params = { class_name: auth.user?.class_name }
   if (filterMeet.value) params.sports_meet = filterMeet.value
   const [regRes, teamRes, evRes] = await Promise.all([
-    registrationApi.list({ ...params, page_size: 200 }),
-    teamRegistrationApi.list({ class_name: auth.user?.class_name, ...(filterMeet.value ? { sports_meet: filterMeet.value } : {}), page_size: 200 }),
-    filterMeet.value ? eventApi.list({ sports_meet: filterMeet.value, page_size: 200 }) : Promise.resolve({ results: [] })
+    loadAllPages(registrationApi.list, params),
+    loadAllPages(teamRegistrationApi.list, params),
+    filterMeet.value ? loadAllPages(eventApi.list, { sports_meet: filterMeet.value }) : Promise.resolve({ results: [] })
   ])
+  if (version !== loadVersion) return
   regs.value = regRes.results || regRes
   teamRegs.value = teamRes.results || teamRes
   events.value = evRes.results || evRes
-  loading.value = false
+  } finally { if (version === loadVersion) loading.value = false }
 }
 
 onMounted(async () => {
-  const res = await meetApi.list()
+  const res = await loadAllPages(meetApi.list)
   meets.value = res.results || res
   const reg = meets.value.find(m => m.status === 'registration')
   const ongoing = meets.value.find(m => m.status === 'ongoing')

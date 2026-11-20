@@ -186,10 +186,9 @@ async function save() {
   await formRef.value.validate()
   saving.value = true
   try {
-    // 从班级名称提取年级（统一为 "2028级" 格式，与种子数据一致）
-    const match = form.class_name?.match(/^(\d{4})级/)
-    const grade = match ? `${match[1]}级` : ''
-    const data = { ...form, grade }
+    const data = { ...form }
+    // Backend resolves the configured grade, including non-year class names.
+    delete data.grade
     if (editId.value) {
       await studentApi.update(editId.value, data)
       ElMessage.success('更新成功')

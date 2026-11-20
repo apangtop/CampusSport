@@ -25,11 +25,11 @@ npm run build                         # 生产构建
 
 - **`accounts`** — 自定义 User 模型，JWT 认证（simplejwt，8h access / 7d refresh）。登录返回 user 对象含 `role`。权限基类 `IsAdmin`、`IsAdminOrTeacher`、`IsAdminOrReferee` 在各 app 的 views.py 中独立定义（未抽取到公共模块）。
 - **`events`** — `SportsMeet`（状态流转：preparing → registration → ongoing → finished）→ `Event`（径赛/田赛/趣味/接力/对抗，支持 1-3 阶段赛制）→ `Schedule`（按阶段+组次编排）
-- **`registration`** — `Student` + `Registration`（个人报名）+ `TeamRegistration`（团体报名）。`Registration` 有 `unique_together('event', 'student')`。每人报名上限在 `SportsMeet.max_events_per_person` 和 `Event.max_per_person` 两级控制。
+- **`registration`** — `Student` + `Registration`（个人报名）+ `TeamRegistration`（团体报名）。`Registration` 有 `unique_together('event', 'student')`。每人报名上限取 `SportsMeet.max_events_per_person` 和 `Event.max_per_person` 的较小值；个人与团体报名规则集中在 `registration/validation.py`。
 - **`scores`** — `Score`（个人成绩）+ `TeamScore`（团体成绩）+ `ConfrontationRound`（对抗赛 BO3/BO5 局次）+ `ClassPoints`（班级积分汇总）。`calculate_rank_and_points()` 根据项目类型决定排序方向（田赛远度类 desc，径赛时间类 asc），`recalculate_class_points()` 汇总班级总积分/奖牌/排名。
 - **`reports`** — `Report` 模型 + 秩序册 Word 生成（`python-docx`）+ 成绩报表 Excel 生成（`openpyxl`）。`generators.py` 中是旧版 Excel 版秩序册（通过文件系统保存），`views.py` 中直接返回内存流下载，后者是当前实际使用的。
 
-API 路由通过 DRF `DefaultRouter` 注册，URL 前缀统一为 `/api/`。跨域全部开放（`CORS_ALLOW_ALL_ORIGINS = True`）。
+API 路由通过 DRF `DefaultRouter` 注册，URL 前缀统一为 `/api/`。开发模式跨域开放；生产模式仅允许环境变量 `CORS_ALLOWED_ORIGINS` 中的来源。
 
 ### 前端：Vue 3 + Element Plus + Pinia
 
@@ -44,7 +44,7 @@ API 路由通过 DRF `DefaultRouter` 注册，URL 前缀统一为 `/api/`。跨�
 - **成绩排序方向**：track/relay 类型按 `result_numeric` 升序（时间越短越好）；field/fun_individual 按单位判断 — `meter`/`count` 降序，`second` 升序。
 - **积分倍率**：团体项目（relay/team_confrontation）积分 ×2.0，在 `Event.score_multiplier` 中配置。
 - **班主任权限边界**：只能操作 `class_name` 匹配的本班学生；裁判只能操作分配给自己项目的成绩。
-- **数据库**：当前配置为 MySQL（`campussport` 库），但含有 `db.sqlite3` 文件。`settings.py` 中的数据库密码是硬编码的测试凭据。
+- **数据库**：当前配置为 MySQL（`campussport` 库），但含有 `db.sqlite3` 文件。`settings.py` 开发模式保留测试默认值；生产模式必须通过环境变量提供 SECRET_KEY、ALLOWED_HOSTS 和 DB_PASSWORD。
 - **中文环境**：`LANGUAGE_CODE = 'zh-hans'`，`TIME_ZONE = 'Asia/Shanghai'`。Element Plus 使用 zh-cn 语言包。Word 生成字体设为微软雅黑。
 
 ### 测试账号

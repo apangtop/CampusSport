@@ -23,6 +23,7 @@
             </el-select>
             <el-select v-model="filterStage" placeholder="阶段" style="width:120px">
               <el-option label="决赛" value="final" />
+              <el-option v-if="currentEvent?.stage_type === 'three'" label="半决赛" value="semifinal" />
               <el-option v-if="currentEvent && currentEvent.stage_type !== 'single'" label="初赛" value="preliminary" />
             </el-select>
             <el-select v-model="filterComplete" placeholder="录入状态" style="width:130px">
@@ -64,7 +65,7 @@
             {{ stageNameMap[grp.stage] || grp.stage }} 第{{ grp.group }}组
             <el-tag size="small" type="info" style="margin-left:8px">{{ grp.entered }}/{{ grp.rows.length }} 已录入</el-tag>
           </h4>
-          <el-table :data="grp.rows" size="small" @selection-change="grp.selected = $event">
+          <el-table :data="grp.rows" size="small" @selection-change="vals => onGroupSelectionChange(grp.key, vals)">
             <el-table-column v-if="isAdvancementStage" type="selection" width="50" align="center" />
             <el-table-column v-if="currentEvent && needsLanes(currentEvent.event_type)" label="道次" width="55" align="center">
               <template #default="{ row }">{{ row.lane || '-' }}</template>
@@ -167,10 +168,13 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { useSchoolStore } from '@/stores/school'
+const school = useSchoolStore()
+import { loadAllPages } from '@/utils/registration'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { scoreApi, eventApi, meetApi } from '@/api'
+import { scoreApi, eventApi, meetApi, teamScoreApi } from '@/api'
 import { shortDatetime, needsLanes } from '@/utils/format'
 
 const route = useRoute()
@@ -189,7 +193,7 @@ const summaryMap = ref({})  // event_id → { total, scored, complete }
 const allRows = ref([])     // 原始数据
 const groups = ref([])      // [{key, group, stage}]
 
-const stageNameMap = { preliminary:'初赛', final:'决赛' }
+const stageNameMap = { preliminary:'初赛', semifinal:'半决赛', final:'决赛' }
 
 const availTypes = computed(() => {
   const s = new Set()
@@ -202,8 +206,8 @@ const filteredEvents = computed(() => {
   if (filterType.value) {
     list = list.filter(e => e.event_type === filterType.value)
   }
-  if (filterClass.value && filterClass.value.endsWith('级')) {
-    list = list.filter(e => e.grade === filterClass.value)
+  if (filterClass.value && school.isGrade(filterClass.value)) {
+    list = list.filter(e => !e.grade || e.grade === filterClass.value)
   }
   if (filterComplete.value) {
     list = list.filter(e => {
@@ -219,15 +223,23 @@ const statusLabel = s => statusMap[s] || s
 
 const selectedRegistrations = ref([])
 const isAdvancementStage = computed(() =>
-  filterStage.value === 'preliminary'
+  !['relay', 'team_confrontation'].includes(currentEvent.value?.event_type) && currentEvent.value?.stage_type !== 'single' && filterStage.value !== 'final' && meetStatus.value === 'ongoing'
 )
 
 const enteredCount = computed(() => allRows.value.filter(r => r.hasScore).length)
 const currentEvent = computed(() => events.value.find(e => e.id == filterEvent.value))
+const isTeam = computed(() => ['relay', 'team_confrontation'].includes(currentEvent.value?.event_type))
+const activeScoreApi = computed(() => isTeam.value ? teamScoreApi : scoreApi)
 const currentUnit = computed(() => {
   const u = currentEvent.value?.result_unit
   return { second:'秒', meter:'米', count:'次', rank:'名次' }[u] || ''
 })
+
+const groupSelections = reactive({})
+function onGroupSelectionChange(key, vals) {
+  groupSelections[key] = vals.filter(r => r.hasScore)
+  selectedRegistrations.value = Object.values(groupSelections).flat()
+}
 
 function onSelectionChange(vals) {
   selectedRegistrations.value = vals.filter(r => r.hasScore)
@@ -285,16 +297,16 @@ function quickAdd(row) {
 async function saveEdit() {
   try {
     if (editRow.value.hasScore && editRow.value.scoreId) {
-      await scoreApi.update(editRow.value.scoreId, {
+      await activeScoreApi.value.update(editRow.value.scoreId, {
         result: editResult.value,
-        result_numeric: parseFloat(editResult.value) || null
+        result_numeric: (Number.isFinite(Number(editResult.value)) && String(editResult.value).trim() !== '' ? Number(editResult.value) : null)
       })
     } else {
-      await scoreApi.create({
-        registration: editRow.value.registration_id,
+      await activeScoreApi.value.create({
+        [isTeam.value ? 'team_registration' : 'registration']: editRow.value.registration_id,
         stage: filterStage.value,
         result: editResult.value,
-        result_numeric: parseFloat(editResult.value) || null
+        result_numeric: (Number.isFinite(Number(editResult.value)) && String(editResult.value).trim() !== '' ? Number(editResult.value) : null)
       })
     }
     ElMessage.success('保存成功')
@@ -306,7 +318,7 @@ async function saveEdit() {
 async function deleteScore(row) {
   try {
     await ElMessageBox.confirm(`确认删除 ${row.student_name} 的成绩？`, '提示', { type: 'warning' })
-    await scoreApi.delete(row.scoreId)
+    await activeScoreApi.value.delete(row.scoreId)
     ElMessage.success('已删除')
     loadAll()
   } catch {}
@@ -330,7 +342,7 @@ async function loadCompletion() {
 
 // 任一筛选变化 → 重新加载
 watch([filterType, filterClass, filterStage, filterComplete], async () => {
-  if (filterClass.value && filterClass.value.endsWith('级')) {
+  if (filterClass.value && school.isGrade(filterClass.value)) {
     filterEvent.value = ''
   }
   await loadCompletion()
@@ -342,30 +354,43 @@ watch([filterType, filterClass, filterStage, filterComplete], async () => {
 
 watch(filterEvent, () => {
   const ev = currentEvent.value
-  if (ev && ev.stage_type === 'single') {
-    filterStage.value = 'final'
+  if (ev) {
+    const allowed = ev.stage_type === 'single' ? ['final'] : ev.stage_type === 'two' ? ['preliminary', 'final'] : ['preliminary', 'semifinal', 'final']
+    if (!allowed.includes(filterStage.value)) filterStage.value = allowed[0]
   }
   loadAll()
 })
 
+let loadVersion = 0
 async function loadAll() {
-  if (!filterEvent.value) return
+  const version = ++loadVersion
+  if (!filterEvent.value) { allRows.value = []; groups.value = []; loading.value = false; return }
+  const event = filterEvent.value
+  const stage = filterStage.value
+  const team = isTeam.value
+  const api = activeScoreApi.value
+  selectedRegistrations.value = []
+  Object.keys(groupSelections).forEach(key => delete groupSelections[key])
   loading.value = true
+  allRows.value = []
+  groups.value = []
+  try {
   const [partRes, scoreRes] = await Promise.all([
-    eventApi.participants(filterEvent.value),
-    scoreApi.list({ event: filterEvent.value, stage: filterStage.value, page_size: 200 })
+    eventApi.participants(event, { stage }),
+    loadAllPages(params => api.list(params), { event, stage })
   ])
+  if (version !== loadVersion) return
   const participants = partRes.results || partRes
   const scores = scoreRes.results || scoreRes
   const scoreMap = {}
-  scores.forEach(s => { scoreMap[s.registration] = s })
+  scores.forEach(s => { scoreMap[team ? s.team_registration : s.registration] = s })
 
-  const raw = participants.map(p => {
+  const raw = participants.filter(p => p.status === 'approved').map(p => {
     const s = scoreMap[p.id]
     return {
       registration_id: p.id,
-      student_name: p.student?.name || '',
-      class_name: p.student?.class_name || '',
+      student_name: team ? '团体' : (p.student?.name || ''),
+      class_name: team ? p.class_name : (p.student?.class_name || ''),
       lane: p.lane || 0,
       schedule_info: p.schedule_info,
       hasScore: !!s,
@@ -379,7 +404,7 @@ async function loadAll() {
     }
   }).filter(r => {
     if (!filterClass.value) return true
-    return r.class_name === filterClass.value
+    return school.isGrade(filterClass.value) ? school.gradeForClass(r.class_name) === filterClass.value : r.class_name === filterClass.value
   })
 
   // 提取组次列表
@@ -395,7 +420,9 @@ async function loadAll() {
     .sort((a, b) => a.group - b.group)
 
   allRows.value = raw
-  loading.value = false
+  } finally {
+    if (version === loadVersion) loading.value = false
+  }
 }
 
 const groupedRows = computed(() => {

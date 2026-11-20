@@ -16,7 +16,7 @@
         <el-table-column prop="registration_count" label="参赛人数" width="90" align="center" />
         <el-table-column label="操作" width="120" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" @click="$router.push(`/referee/score-entry?event=${row.id}`)">录入成绩</el-button>
+            <el-button link type="primary" @click="$router.push(row.event_type === 'team_confrontation' ? `/referee/confrontation?event=${row.id}` : `/referee/score-entry?event=${row.id}`)">录入成绩</el-button>
           </template>
         </el-table-column>
       </el-table>

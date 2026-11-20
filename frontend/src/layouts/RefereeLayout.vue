@@ -4,7 +4,7 @@
     <el-aside :width="collapsed ? '0px' : '220px'" class="sidebar">
       <div class="logo-area" @click="collapsed = !collapsed">
         <span class="logo-icon">🏃</span>
-        <span class="logo-text">CampusSport</span>
+        <span class="logo-text">{{ school.system_name }}</span>
       </div>
       <el-menu :router="true" :default-active="$route.path" background-color="#001529"
         text-color="#ffffffa6" active-text-color="#fff">
@@ -20,7 +20,7 @@
           <el-icon v-if="isMobile" class="menu-toggle" :size="22" @click="collapsed = !collapsed">
             <Expand v-if="collapsed" /><Fold v-else />
           </el-icon>
-          <span class="header-title" v-if="isMobile && collapsed">CampusSport</span>
+          <span class="header-title" v-if="isMobile && collapsed">{{ school.system_name }}</span>
         </div>
         <div class="header-right">
           <el-dropdown @command="handleCommand">
@@ -47,10 +47,12 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
+import { useSchoolStore } from '@/stores/school'
 import { useAuthStore } from '@/stores/auth'
 import { Expand, Fold } from '@element-plus/icons-vue'
 
 const auth = useAuthStore()
+const school = useSchoolStore()
 const router = useRouter()
 const collapsed = ref(window.innerWidth < 768)
 const isMobile = ref(window.innerWidth < 768)
@@ -77,7 +79,7 @@ function handleCommand(cmd) {
 .mobile-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 99; }
 .logo-area { height: 64px; display: flex; align-items: center; justify-content: center; cursor: pointer; border-bottom: 1px solid #ffffff15; gap: 10px; }
 .logo-icon { font-size: 28px; }
-.logo-text { color: #fff; font-size: 18px; font-weight: 700; white-space: nowrap; }
+.logo-text { overflow: hidden; text-overflow: ellipsis; color: #fff; font-size: 18px; font-weight: 700; white-space: nowrap; }
 .el-menu { border-right: none; }
 .app-header { background: #fff; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f0f0f0; padding: 0 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); height: 56px; }
 .menu-toggle { cursor: pointer; color: #333; margin-right: 10px; }

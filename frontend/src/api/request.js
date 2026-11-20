@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import router from '@/router'
+import { useAuthStore } from '@/stores/auth'
 
 const request = axios.create({
   baseURL: '/api',
@@ -23,10 +24,10 @@ request.interceptors.response.use(
   },
   err => {
     const status = err.response?.status
-    const msg = err.response?.data?.detail || err.response?.data?.message || '请求失败'
+    const data = err.response?.data
+    const msg = data?.detail || data?.message || (Array.isArray(data?.errors) ? data.errors.join('；') : '') || (data && typeof data === 'object' ? Object.values(data).flat().join('；') : '') || '请求失败'
     if (status === 401) {
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('user_info')
+      useAuthStore().logout()
       router.push('/login')
       ElMessage.error('登录已过期，请重新登录')
     } else if (status === 403) {

@@ -13,6 +13,7 @@
               <el-option label="未审核" value="submitted" />
               <el-option label="已审核" value="approved" />
               <el-option label="已拒绝" value="rejected" />
+              <el-option label="已取消" value="cancelled" />
             </el-select>
             <el-select v-if="regMode === 'individual'" v-model="filterType" placeholder="项目分类" clearable style="width:100px" @change="onFilterTypeChange">
               <el-option label="全部" value="" />
@@ -113,6 +114,8 @@
 </template>
 
 <script setup>
+import { useSchoolStore } from '@/stores/school'
+const school = useSchoolStore()
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -143,11 +146,12 @@ const filteredEvents = computed(() => {
   let list = events.value
   if (regMode.value === 'team') {
     list = list.filter(e => ['relay', 'team_confrontation'].includes(e.event_type))
-  } else if (filterType.value) {
-    list = list.filter(e => e.event_type === filterType.value)
+  } else {
+    list = list.filter(e => !['relay', 'team_confrontation'].includes(e.event_type))
+    if (filterType.value) list = list.filter(e => e.event_type === filterType.value)
   }
-  if (filterClass.value && filterClass.value.endsWith('级')) {
-    list = list.filter(e => e.grade === filterClass.value)
+  if (filterClass.value && school.isGrade(filterClass.value)) {
+    list = list.filter(e => !e.grade || e.grade === filterClass.value)
   }
   return list
 })
@@ -256,19 +260,25 @@ async function reject(row) {
 
 async function approveAll() {
   await ElMessageBox.confirm(
-    regMode.value === 'team' ? '确认审核所有团体项目已提交的报名？' : '确认审核所有已提交的报名？',
+    '确认审核当前运动会、当前筛选范围内的待审核报名？',
     '提示', { type: 'warning' }
   )
   if (regMode.value === 'team') {
-    const params = {}
+    const params = { sports_meet_id: meetId }
+    if (filterClass.value) params.class_name = filterClass.value
+    if (filterType.value) params.type = filterType.value
     if (filterEvent.value) params.event_id = filterEvent.value
     const res = await teamRegistrationApi.approveAll(params)
     ElMessage.success(res.detail)
+    if (res.errors?.length) ElMessage.warning(res.errors.map(e => `报名${e.id}：${Array.isArray(e.detail) ? e.detail.join('；') : e.detail}`).join('；'))
   } else {
-    const params = {}
+    const params = { sports_meet_id: meetId }
+    if (filterClass.value) params.class_name = filterClass.value
+    if (filterType.value) params.type = filterType.value
     if (filterEvent.value) params.event_id = filterEvent.value
     const res = await registrationApi.approveAll(params)
     ElMessage.success(res.detail)
+    if (res.errors?.length) ElMessage.warning(res.errors.map(e => `报名${e.id}：${Array.isArray(e.detail) ? e.detail.join('；') : e.detail}`).join('；'))
   }
   load()
 }
@@ -287,8 +297,9 @@ async function autoAssign() {
       })
       lanes = parseInt(result.value) || 8
     }
-    const res = await eventApi.autoAssignLanes(filterEvent.value, { lanes_per_group: lanes || 999 })
+    const res = await eventApi.autoAssignLanes(filterEvent.value, { lanes_per_group: lanes || 6 })
     ElMessage.success(res.detail)
+    if (res.errors?.length) ElMessage.warning(res.errors.map(e => `报名${e.id}：${Array.isArray(e.detail) ? e.detail.join('；') : e.detail}`).join('；'))
     load()
   } catch {}
 }

@@ -3,8 +3,8 @@
     <div class="login-box">
       <div class="login-header">
         <div class="logo">🏃</div>
-        <h1>CampusSport</h1>
-        <p>校园运动会管理系统</p>
+        <h1>{{ school.system_name }}</h1>
+        <p>{{ school.school_name || '校园运动会管理系统' }}</p>
       </div>
       <el-form :model="form" :rules="rules" ref="formRef" size="large" @keyup.enter="handleLogin">
         <el-form-item prop="username">
@@ -34,6 +34,8 @@ import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 
+import { useSchoolStore } from '@/stores/school'
+const school = useSchoolStore()
 const router = useRouter()
 const auth = useAuthStore()
 const formRef = ref()
@@ -46,7 +48,7 @@ const rules = {
 }
 
 async function handleLogin() {
-  await formRef.value.validate()
+  if (loading.value || !await formRef.value.validate().catch(() => false)) return
   loading.value = true
   try {
     const user = await auth.login(form.username, form.password)
@@ -71,7 +73,8 @@ async function handleLogin() {
   background: #fff;
   border-radius: 16px;
   padding: 48px 40px;
-  width: 420px;
+  width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 .login-header {

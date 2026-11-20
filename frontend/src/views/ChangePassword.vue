@@ -50,7 +50,7 @@ const rules = {
   old_password: [{ required: true, message: '请输入原密码', trigger: 'blur' }],
   new_password: [
     { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 6, message: '密码至少6位', trigger: 'blur' }
+    { min: 8, message: '密码至少8位', trigger: 'blur' }
   ],
   confirm_password: [
     { required: true, message: '请确认新密码', trigger: 'blur' },
@@ -67,7 +67,9 @@ async function submit() {
       old_password: form.old_password,
       new_password: form.new_password
     })
-    ElMessage.success('密码修改成功')
+    ElMessage.success('密码修改成功，请重新登录')
+    auth.logout()
+    window.location.assign('/login')
     form.old_password = ''
     form.new_password = ''
     form.confirm_password = ''

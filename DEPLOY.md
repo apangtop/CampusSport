@@ -9,7 +9,7 @@
 │  │ 已有项目          │  │ 本项目 (Docker)       │  │
 │  │ Nginx :80        │  │ Frontend Nginx :8080 │  │
 │  │ Django :8000      │  │ Backend  :8000(内部)│  │
-│  │ MySQL  :3306      │  │ MySQL    :3307      │  │
+│  │ MySQL  :3306      │  │ MySQL    :3306(内部)│  │
 │  └──────────────────┘  └──────────────────────┘  │
 └──────────────────────────────────────────────────┘
 ```
@@ -19,11 +19,11 @@
 ## 前置条件
 
 1. CentOS 服务器已安装 Docker 和 Docker Compose
-2. 确保以下端口未被占用：**8080、3307**
+2. 确保以下端口未被占用：**8080**
 
 ```bash
 # 检查端口占用
-ss -tlnp | grep -E '8080|3307'
+ss -tlnp | grep -E '8080'
 ```
 
 ## 第一步：上传项目到服务器
@@ -50,7 +50,8 @@ tar -xzf /opt/campussport.tar.gz
 ```bash
 cd /opt/campussport
 
-# 编辑 .env 文件，修改密码和关键配置
+# 从模板创建配置，填写密码与至少32字符的随机 SECRET_KEY
+cp .env.example .env
 vi .env
 ```
 
@@ -95,18 +96,17 @@ docker compose ps
 # campussport-frontend-1  nginx:alpine   Up
 ```
 
-## 第五步：导入测试数据
+## 第五步：初始化学校与管理员
+
+仅对首次空库运行，密码通过终端交互输入：
 
 ```bash
-# 进入后端容器
-docker compose exec backend python manage.py seed_data --clear
+docker compose exec backend python manage.py bootstrap_school --school "学校全称" --username school_admin
 ```
 
-这会创建：
-- 1 届运动会（第三届田径运动会）
-- 2 个年级共 7 个班级的学生
-- 70 个比赛项目及赛程
-- 预设账号：admin、teacher_*/referee*
+登录前端后配置「学校设置」中的年级、班级，并创建班主任与裁判账号。已有业务数据时不运行初始化命令；学校名称可在后台修改。
+
+正式环境不使用 `seed_data`。演示命令在关闭 DEBUG 或已有学校配置时会直接拒绝运行，避免误清空学校数据。
 
 ## 第六步：配置外网访问
 
@@ -181,6 +181,6 @@ tar -czf media_backup.tar.gz -C /var/lib/docker/volumes campussport_media_data
 # 恢复数据库
 docker compose exec -T db mysql -u root -p campussport < backup_20260512.sql
 
-# 恢复后重新导入数据
-docker compose exec backend python manage.py seed_data --clear
+# 恢复完成后验证数据，不要执行 seed_data --clear（该命令会清空已恢复数据）
+docker compose exec backend python manage.py check
 ```

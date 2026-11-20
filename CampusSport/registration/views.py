@@ -1,8 +1,11 @@
+from CampusSport.input_validation import object_data, query_id
+from rest_framework import serializers
 from rest_framework import viewsets, status, permissions
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.http import HttpResponse
 import openpyxl
@@ -14,6 +17,8 @@ from .serializers import (
     BulkRegistrationSerializer
 )
 from events.models import Event, SportsMeet
+from .services import submit, change_status, approve_batch, lock_event, lock_record
+from .validation import check_registration_open, validate_individual, ACTIVE_STATUSES
 
 
 class IsAdmin(permissions.BasePermission):
@@ -38,10 +43,8 @@ class StudentViewSet(viewsets.ModelViewSet):
             qs = qs.filter(class_name=user.class_name)
         class_name = self.request.query_params.get('class_name')
         if class_name:
-            if class_name.endswith('级') and not class_name.endswith('班'):
-                qs = qs.filter(class_name__startswith=class_name)
-            else:
-                qs = qs.filter(class_name=class_name)
+            from accounts.school import filter_class_or_grade
+            qs = filter_class_or_grade(qs, class_name, 'class_name')
         name = self.request.query_params.get('name')
         if name:
             qs = qs.filter(name__icontains=name)
@@ -56,15 +59,34 @@ class StudentViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [IsAdminOrTeacher()]
-        return [permissions.IsAuthenticated()]
+        return super().get_permissions()
 
     def perform_create(self, serializer):
         user = self.request.user
         if user.role == 'teacher':
-            class_name = serializer.validated_data.get('class_name', '')
+            class_name = serializer.validated_data.get('class_name', getattr(serializer.instance, 'class_name', ''))
             if class_name != user.class_name:
                 raise PermissionDenied('只能添加本班学生')
-        serializer.save()
+        serializer.validate(serializer.validated_data)
+        from django.db import IntegrityError
+        try:
+            with transaction.atomic():
+                serializer.save()
+        except IntegrityError:
+            raise ValidationError('学生学号已存在，请刷新后重试')
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        serializer.instance = get_object_or_404(Student.objects.select_for_update(),pk=serializer.instance.pk)
+        serializer.validate(serializer.validated_data)
+        self.perform_create(serializer)
+
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        instance = get_object_or_404(Student.objects.select_for_update(),pk=instance.pk)
+        if instance.team_registrations.filter(status__in=ACTIVE_STATUSES).exists():
+            raise ValidationError('学生仍属于有效团体报名，请先调整队员或取消报名')
+        instance.delete()
 
     @action(detail=False, methods=['post'], permission_classes=[IsAdminOrTeacher])
     def import_excel(self, request):
@@ -72,7 +94,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         file = request.FILES.get('file')
         if not file:
             return Response({'detail': '请上传Excel文件'}, status=status.HTTP_400_BAD_REQUEST)
-        default_class = request.data.get('class_name') or request.user.class_name or ''
+        default_class = object_data(request).get('class_name') or request.user.class_name or ''
         try:
             wb = openpyxl.load_workbook(file)
             ws = wb.active
@@ -97,6 +119,9 @@ class StudentViewSet(viewsets.ModelViewSet):
             student_id = cell(row, 2)
             grade = cell(row, 3)
             row_class = cell(row, 4)
+            if gender_raw not in ['男', 'male', 'M', 'm', '女', 'female', 'F', 'f']:
+                errors.append(f'第{row_idx}行：性别无效')
+                continue
             gender = 'male' if gender_raw in ['男', 'male', 'M', 'm'] else 'female'
 
             # 如果 Excel 行中没指定班级，使用请求中的默认班级
@@ -105,23 +130,22 @@ class StudentViewSet(viewsets.ModelViewSet):
                 errors.append(f'第{row_idx}行：未指定班级')
                 continue
 
-            # 自动从班级名提取年级（如 2028级1班 → 2028级）
-            if not grade and student_class:
-                match = re.match(r'(\d{4}级)', student_class)
-                if match:
-                    grade = match.group(1)
+            if request.user.role == 'teacher' and student_class != request.user.class_name:
+                errors.append(f'第{row_idx}行：只能导入本班学生')
+                continue
 
-            # 优先用学号+班级匹配，否则用姓名+班级
-            if student_id:
-                obj, is_created = Student.objects.update_or_create(
-                    student_id=student_id, class_name=student_class,
-                    defaults={'name': name, 'gender': gender, 'grade': grade}
-                )
-            else:
-                obj, is_created = Student.objects.update_or_create(
-                    name=name, class_name=student_class,
-                    defaults={'gender': gender, 'student_id': student_id, 'grade': grade}
-                )
+            if not grade:
+                from accounts.school import class_grade
+                grade = class_grade(student_class)
+
+            from .services import import_student
+            lookup = {'student_id': student_id, 'class_name': student_class} if student_id else {'name': name, 'class_name': student_class}
+            try:
+                obj, is_created = import_student(lookup, {'name': name, 'gender': gender,
+                    'student_id': student_id, 'grade': grade}, request)
+            except ValidationError as exc:
+                errors.append(f'第{row_idx}行：{exc.detail}')
+                continue
             (created if is_created else updated).append(name)
 
         return Response({
@@ -140,9 +164,12 @@ class StudentViewSet(viewsets.ModelViewSet):
         headers = ['姓名', '性别(男/女)', '学号', '年级', '班级']
         for col, h in enumerate(headers, 1):
             ws.cell(row=1, column=col, value=h)
-        # 示例数据
-        ws.append(['张三', '男', '2024001', '2028级', '2028级1班'])
-        ws.append(['李四', '女', '2024002', '2028级', '2028级1班'])
+        # Templates are blank so example pupils cannot accidentally become real records.
+        from accounts.school import profile, class_grade
+        sample_class = request.user.class_name if request.user.role == 'teacher' else ''
+        if not sample_class and profile().classes:
+            sample_class = profile().classes[0]['name']
+        ws.append(['', '', '', class_grade(sample_class), sample_class])
 
         buffer = io.BytesIO()
         wb.save(buffer)
@@ -157,34 +184,34 @@ class StudentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], permission_classes=[IsAdminOrTeacher])
     def bulk(self, request):
         """批量创建学生"""
-        students_data = request.data if isinstance(request.data, list) else request.data.get('students', [])
-        if not students_data:
-            return Response({'detail': '请提供学生列表'}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(request.data, (list,dict)):
+            raise ValidationError('请提供学生列表')
+        students_data = request.data if isinstance(request.data,list) else object_data(request).get('students',[])
+        if not isinstance(students_data,list) or not 1 <= len(students_data) <= 2000:
+            raise ValidationError('请提供1到2000条学生数据')
+        default_class = object_data(request).get('class_name') if isinstance(request.data,dict) else ''
+        if request.user.role == 'teacher':
+            default_class = default_class or request.user.class_name
+        from .services import create_student_once
+        created, errors, unchanged = [], [], 0
+        for index,item in enumerate(students_data,1):
+            if not isinstance(item,dict):
+                errors.append(f'第{index}条：学生资料必须为对象')
+                continue
+            data=dict(item)
+            data['class_name']=data.get('class_name') or default_class
+            gender=data.get('gender','男')
+            gender_map={'男':'male','male':'male','M':'male','m':'male','女':'female','female':'female','F':'female','f':'female'}
+            data['gender']=gender_map.get(str(gender),gender)
+            try:
+                obj,is_new=create_student_once(data,request)
+            except (ValidationError,PermissionDenied) as exc:
+                errors.append(f'第{index}条：{exc.detail}')
+                continue
+            if is_new:created.append(obj.name)
+            else:unchanged+=1
+        return Response({'created':len(created),'unchanged':unchanged,'errors':errors,'detail':f'新增 {len(created)} 名学生'})
 
-        class_name = request.data.get('class_name') if isinstance(request.data, dict) else ''
-        created, errors = [], []
-        for item in students_data:
-            name = item.get('name', '').strip()
-            if not name:
-                errors.append('姓名为空')
-                continue
-            item_class = item.get('class_name', class_name) or (request.user.class_name if request.user.role == 'teacher' else '')
-            if not item_class:
-                errors.append(f'{name}: 缺少班级信息')
-                continue
-            gender_raw = item.get('gender', '男')
-            gender = 'male' if str(gender_raw) in ['男', 'male', 'M', 'm'] else 'female'
-            obj, is_new = Student.objects.get_or_create(
-                name=name, class_name=item_class,
-                defaults={
-                    'gender': gender,
-                    'student_id': item.get('student_id', ''),
-                    'grade': item.get('grade', ''),
-                }
-            )
-            if is_new:
-                created.append(name)
-        return Response({'created': len(created), 'errors': errors, 'detail': f'新增 {len(created)} 名学生'})
 
 
 class RegistrationViewSet(viewsets.ModelViewSet):
@@ -194,7 +221,9 @@ class RegistrationViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == 'destroy':
             return [IsAdmin()]
-        return [permissions.IsAuthenticated()]
+        if self.action in ['create', 'update', 'partial_update']:
+            return [IsAdminOrTeacher()]
+        return super().get_permissions()
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
@@ -209,19 +238,17 @@ class RegistrationViewSet(viewsets.ModelViewSet):
         elif user.role == 'referee':
             qs = qs.filter(event__referee=user)
 
-        event_id = self.request.query_params.get('event')
+        event_id = query_id(self.request.query_params, 'event')
         if event_id:
             qs = qs.filter(event_id=event_id)
         class_name = self.request.query_params.get('class_name')
         if class_name:
-            if class_name.endswith('级') and not class_name.endswith('班'):
-                qs = qs.filter(student__class_name__startswith=class_name)
-            else:
-                qs = qs.filter(student__class_name=class_name)
+            from accounts.school import filter_class_or_grade
+            qs = filter_class_or_grade(qs, class_name, 'student__class_name')
         status_filter = self.request.query_params.get('status')
         if status_filter:
             qs = qs.filter(status=status_filter)
-        meet_id = self.request.query_params.get('sports_meet')
+        meet_id = query_id(self.request.query_params, 'sports_meet')
         if meet_id:
             qs = qs.filter(event__sports_meet_id=meet_id)
         event_type = self.request.query_params.get('type')
@@ -230,154 +257,92 @@ class RegistrationViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        serializer.save(submitted_by=self.request.user)
+        submit(serializer, self.request.user)
 
-    def perform_destroy(self, instance):
-        if instance.event.sports_meet.status in ('ongoing', 'finished'):
-            raise PermissionDenied('进行中或已结束的运动会不能删除报名')
-        instance.delete()
-
-    def _check_teacher_permission(self, registration):
-        user = self.request.user
-        if user.role == 'teacher' and registration.student.class_name != user.class_name:
-            return False
-        return True
-
+    @transaction.atomic
     def update(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if not self._check_teacher_permission(instance):
-            return Response({'detail': '只能操作本班学生的报名'}, status=status.HTTP_403_FORBIDDEN)
-        if instance.event.sports_meet.status not in ['registration'] and request.user.role != 'admin':
-            return Response({'detail': '报名截止后不可修改'}, status=status.HTTP_400_BAD_REQUEST)
-        return super().update(request, *args, **kwargs)
+        initial = self.get_object()
+        record = lock_record(Registration, initial.pk)
+        serializer = self.get_serializer(record, data=request.data, partial=kwargs.pop('partial', False))
+        serializer.is_valid(raise_exception=True)
+        if isinstance(record, TeamRegistration) and 'members' in serializer.validated_data:
+            selected = serializer.validated_data['members']
+            ids = {m.pk for m in selected}
+            all_ids = ids | set(record.members.values_list('pk', flat=True))
+            locked = list(Student.objects.select_for_update().filter(pk__in=all_ids).order_by('pk'))
+            members = [m for m in locked if m.pk in ids]
+            if len(members) != len(selected):
+                raise ValidationError('队员数据已变化，请刷新重试')
+            serializer.validated_data['members'] = members
+            serializer.validate(serializer.validated_data)
+        serializer.save()
+        return Response(serializer.data)
+
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        record = lock_record(Registration, instance.pk)
+        check_registration_open(record.event, self.request.user)
+        record.delete()
 
     @action(detail=False, methods=['post'], permission_classes=[IsAdminOrTeacher])
+    @transaction.atomic
     def bulk_register(self, request):
-        """批量报名"""
         serializer = BulkRegistrationSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        event_id = serializer.validated_data['event_id']
+        serializer.is_valid(raise_exception=True)
+        event = lock_event(serializer.validated_data['event_id'])
+        check_registration_open(event, request.user)
         student_ids = serializer.validated_data['student_ids']
-
-        try:
-            event = Event.objects.select_related('sports_meet').get(id=event_id)
-        except Event.DoesNotExist:
-            return Response({'detail': '项目不存在'}, status=status.HTTP_404_NOT_FOUND)
-
-        meet = event.sports_meet
-
-        # 检查运动会状态和报名截止时间
-        if meet.status != 'registration' and request.user.role != 'admin':
-            return Response({'detail': '当前不在报名阶段'}, status=status.HTTP_400_BAD_REQUEST)
-        if meet.registration_deadline and timezone.now() > meet.registration_deadline and request.user.role != 'admin':
-            return Response({'detail': '报名已截止'}, status=status.HTTP_400_BAD_REQUEST)
-
-        user = request.user
-        if user.role == 'teacher':
-            students = Student.objects.filter(id__in=student_ids, class_name=user.class_name)
-            if students.count() != len(student_ids):
-                return Response({'detail': '只能为本班学生报名'}, status=status.HTTP_400_BAD_REQUEST)
-
-        created = []
-        errors = []
-        with transaction.atomic():
-            # 在事务内检查每班报名上限，防止竞态条件
-            if user.role == 'teacher':
-                # 排除已报名本项目学生，只统计新增人数
-                existing_ids = set(
-                    Registration.objects.filter(
-                        event=event, student_id__in=student_ids,
-                        status__in=['submitted', 'approved']
-                    ).values_list('student_id', flat=True)
-                )
-                new_count = len(student_ids) - len(existing_ids)
-                current_count = Registration.objects.select_for_update().filter(
-                    event=event,
-                    student__class_name=user.class_name,
-                    status__in=['submitted', 'approved']
-                ).count()
-                if current_count + new_count > event.max_per_class:
-                    return Response(
-                        {'detail': f'超出每班报名上限({event.max_per_class}人)'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-            for student_id in student_ids:
-                try:
-                    student = Student.objects.get(id=student_id)
-
-                    # 检查性别匹配
-                    if event.gender != 'mixed' and student.gender != event.gender:
-                        errors.append(f'{student.name} 性别不符（项目要求{event.get_gender_display()}）')
-                        continue
-
-                    # 检查年级匹配
-                    if event.grade and student.grade != event.grade:
-                        errors.append(f'{student.name} 年级不符（项目要求{event.grade}，学生为{student.grade}）')
-                        continue
-
-                    # 检查每人报名项目数：以 event.max_per_person 为准，meet 上限兜底
-                    per_event_cap = event.max_per_person or meet.max_events_per_person
-                    person_count = Registration.objects.filter(
-                        student=student,
-                        event__sports_meet=meet,
-                        status__in=['submitted', 'approved']
-                    ).count()
-                    if person_count >= per_event_cap:
-                        errors.append(f'{student.name} 已达到报名项目上限（{per_event_cap}个）')
-                        continue
-                    reg, created_flag = Registration.objects.get_or_create(
-                        event=event, student=student,
-                        defaults={'submitted_by': user, 'status': 'submitted'}
-                    )
-                    if created_flag:
-                        created.append(student.name)
-                    elif reg.status == 'cancelled':
-                        reg.status = 'submitted'
-                        reg.submitted_by = user
-                        reg.save()
-                        created.append(student.name)
-                except Student.DoesNotExist:
-                    errors.append(f'学生ID {student_id} 不存在')
-
-        return Response({'created': created, 'errors': errors})
+        students = {s.pk: s for s in Student.objects.select_for_update().filter(pk__in=student_ids).order_by('pk')}
+        if request.user.role == 'teacher' and any(s.class_name != request.user.class_name for s in students.values()):
+            raise PermissionDenied('只能为本班学生报名')
+        created, errors, unchanged = [], [], []
+        for student_id in student_ids:
+            student = students.get(student_id)
+            if not student:
+                errors.append(f'学生ID {student_id} 不存在')
+                continue
+            existing = Registration.objects.filter(event=event, student=student).first()
+            if existing and existing.status in ACTIVE_STATUSES:
+                unchanged.append(student.name)
+                continue
+            try:
+                validate_individual(event, student, request.user, existing)
+            except (ValidationError, PermissionDenied) as exc:
+                errors.append(f'{student.name}: {exc.detail}')
+                continue
+            if existing:
+                existing.status = 'submitted'
+                existing.submitted_by = request.user
+                existing.schedule = None
+                existing.lane = None
+                existing.save()
+            else:
+                Registration.objects.create(event=event, student=student, submitted_by=request.user)
+            created.append(student.name)
+        return Response({'created': created, 'errors': errors, 'unchanged': unchanged},
+                        status=400 if errors and not created and not unchanged else 200)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdmin])
     def approve(self, request, pk=None):
-        reg = self.get_object()
-        reg.status = 'approved'
-        reg.save()
+        record = self.get_object()
+        change_status(Registration, record.pk, 'approved', request.user)
         return Response({'detail': '已审核通过'})
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdmin])
     def reject(self, request, pk=None):
-        reg = self.get_object()
-        reg.status = 'rejected'
-        reg.save()
+        record = self.get_object()
+        change_status(Registration, record.pk, 'rejected', request.user)
         return Response({'detail': '已拒绝'})
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminOrTeacher])
     def cancel(self, request, pk=None):
-        reg = self.get_object()
-        user = request.user
-        if user.role == 'teacher' and reg.student.class_name != user.class_name:
-            return Response({'detail': '只能取消本班报名'}, status=status.HTTP_403_FORBIDDEN)
-        if reg.event.sports_meet.status not in ('registration',) and user.role != 'admin':
-            return Response({'detail': '报名已截止，无法取消'}, status=status.HTTP_400_BAD_REQUEST)
-        reg.status = 'cancelled'
-        reg.save()
+        record = self.get_object()
+        change_status(Registration, record.pk, 'cancelled', request.user)
         return Response({'detail': '已取消报名'})
 
     @action(detail=False, methods=['post'], permission_classes=[IsAdmin])
     def approve_all(self, request):
-        """一键审核所有提交的报名"""
-        event_id = request.data.get('event_id')
-        qs = Registration.objects.filter(status='submitted')
-        if event_id:
-            qs = qs.filter(event_id=event_id)
-        count = qs.update(status='approved')
-        return Response({'detail': f'已审核 {count} 条报名'})
+        return Response(approve_batch(Registration, request.data, request.user))
 
 
 class TeamRegistrationViewSet(viewsets.ModelViewSet):
@@ -390,7 +355,7 @@ class TeamRegistrationViewSet(viewsets.ModelViewSet):
             return [IsAdminOrTeacher()]
         if self.action == 'destroy':
             return [IsAdmin()]
-        return [permissions.IsAuthenticated()]
+        return super().get_permissions()
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -399,66 +364,67 @@ class TeamRegistrationViewSet(viewsets.ModelViewSet):
             qs = qs.filter(class_name=user.class_name)
         elif user.role == 'referee':
             qs = qs.filter(event__referee=user)
-        event_id = self.request.query_params.get('event')
+        event_id = query_id(self.request.query_params, 'event')
         if event_id:
             qs = qs.filter(event_id=event_id)
         class_name = self.request.query_params.get('class_name')
         if class_name:
-            if class_name.endswith('级') and not class_name.endswith('班'):
-                qs = qs.filter(class_name__startswith=class_name)
-            else:
-                qs = qs.filter(class_name=class_name)
+            from accounts.school import filter_class_or_grade
+            qs = filter_class_or_grade(qs, class_name, 'class_name')
         status_filter = self.request.query_params.get('status')
         if status_filter:
             qs = qs.filter(status=status_filter)
-        meet_id = self.request.query_params.get('sports_meet')
+        meet_id = query_id(self.request.query_params, 'sports_meet')
         if meet_id:
             qs = qs.filter(event__sports_meet_id=meet_id)
         return qs
 
     def perform_create(self, serializer):
-        user = self.request.user
-        class_name = serializer.validated_data.get('class_name', '')
-        if user.role == 'teacher' and class_name != user.class_name:
-            raise PermissionDenied('只能为本班报名团体项目')
-        serializer.save(submitted_by=user)
+        submit(serializer, self.request.user)
 
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        initial = self.get_object()
+        record = lock_record(TeamRegistration, initial.pk)
+        serializer = self.get_serializer(record, data=request.data, partial=kwargs.pop('partial', False))
+        serializer.is_valid(raise_exception=True)
+        if isinstance(record, TeamRegistration) and 'members' in serializer.validated_data:
+            selected = serializer.validated_data['members']
+            ids = {m.pk for m in selected}
+            all_ids = ids | set(record.members.values_list('pk', flat=True))
+            locked = list(Student.objects.select_for_update().filter(pk__in=all_ids).order_by('pk'))
+            members = [m for m in locked if m.pk in ids]
+            if len(members) != len(selected):
+                raise ValidationError('队员数据已变化，请刷新重试')
+            serializer.validated_data['members'] = members
+            serializer.validate(serializer.validated_data)
+        serializer.save()
+        return Response(serializer.data)
+
+    @transaction.atomic
     def perform_destroy(self, instance):
-        if instance.event.sports_meet.status in ('ongoing', 'finished'):
-            raise PermissionDenied('进行中或已结束的运动会不能删除团体报名')
-        instance.delete()
-
-    @action(detail=True, methods=['post'], permission_classes=[IsAdminOrTeacher])
-    def cancel(self, request, pk=None):
-        tr = self.get_object()
-        user = request.user
-        if user.role == 'teacher' and tr.class_name != user.class_name:
-            return Response({'detail': '只能取消本班报名'}, status=status.HTTP_403_FORBIDDEN)
-        if tr.event.sports_meet.status not in ('registration',) and user.role != 'admin':
-            return Response({'detail': '报名已截止，无法取消'}, status=status.HTTP_400_BAD_REQUEST)
-        tr.delete()
-        return Response({'detail': '已取消团体报名'})
+        record = lock_record(TeamRegistration, instance.pk)
+        check_registration_open(record.event, self.request.user)
+        record.delete()
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdmin])
     def approve(self, request, pk=None):
-        tr = self.get_object()
-        tr.status = 'approved'
-        tr.save()
+        record = self.get_object()
+        change_status(TeamRegistration, record.pk, 'approved', request.user)
         return Response({'detail': '已审核通过'})
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdmin])
     def reject(self, request, pk=None):
-        tr = self.get_object()
-        tr.status = 'rejected'
-        tr.save()
+        record = self.get_object()
+        change_status(TeamRegistration, record.pk, 'rejected', request.user)
         return Response({'detail': '已拒绝'})
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminOrTeacher])
+    def cancel(self, request, pk=None):
+        record = self.get_object()
+        change_status(TeamRegistration, record.pk, 'cancelled', request.user)
+        return Response({'detail': '已取消报名'})
 
     @action(detail=False, methods=['post'], permission_classes=[IsAdmin])
     def approve_all(self, request):
-        """一键审核所有提交的团体报名"""
-        event_id = request.data.get('event_id')
-        qs = TeamRegistration.objects.filter(status='submitted')
-        if event_id:
-            qs = qs.filter(event_id=event_id)
-        count = qs.update(status='approved')
-        return Response({'detail': f'已审核 {count} 条团体报名'})
+        return Response(approve_batch(TeamRegistration, request.data, request.user))

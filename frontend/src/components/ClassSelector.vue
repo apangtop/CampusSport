@@ -1,133 +1,50 @@
 <template>
   <div class="class-selector">
-    <!-- 年级选择 -->
-    <el-select
-      v-model="selectedYear"
-      placeholder="选择年级"
-      :style="{ width: yearWidth }"
-      @change="onYearChange"
-      :clearable="clearable"
-    >
-      <el-option-group label="在校年级（当前届次）">
-        <el-option
-          v-for="y in priorityYears"
-          :key="y.year"
-          :label="y.label"
-          :value="y.year"
-        />
-      </el-option-group>
-      <el-option-group label="往届">
-        <el-option
-          v-for="y in historyYears"
-          :key="y.year"
-          :label="y.label"
-          :value="y.year"
-        />
-      </el-option-group>
+    <el-select v-model="selectedGrade" aria-label="选择年级" placeholder="选择年级" :style="{ width: yearWidth }"
+      :clearable="clearable" filterable @change="onGradeChange">
+      <el-option v-for="grade in grades" :key="grade" :label="grade" :value="grade" />
     </el-select>
-
-    <!-- 班级选择 -->
-    <el-select
-      v-model="selectedClass"
-      placeholder="选择班级"
-      :style="{ width: classWidth }"
-      :disabled="!selectedYear"
-      @change="onClassChange"
-      :clearable="clearable"
-    >
-      <el-option
-        v-for="n in classCount"
-        :key="n"
-        :label="`${n}班`"
-        :value="n"
-      />
+    <el-select :model-value="classValue" aria-label="选择班级" placeholder="选择或输入班级" :style="{ width: classWidth }"
+      :clearable="clearable" filterable allow-create default-first-option @change="onClassChange">
+      <el-option v-for="item in classes" :key="item.name" :label="item.name" :value="item.name" />
     </el-select>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, computed } from 'vue'
-import { getGradeYears, parseClassName, currentYear } from '@/utils/classOptions'
-
+import { ref, watch, computed, onMounted, nextTick } from 'vue'
+import { useSchoolStore } from '@/stores/school'
+import { getGradeYears, getClassOptions } from '@/utils/classOptions'
 const props = defineProps({
   modelValue: { type: String, default: '' },
   yearWidth: { type: String, default: '130px' },
-  classWidth: { type: String, default: '100px' },
+  classWidth: { type: String, default: '150px' },
   classCount: { type: Number, default: 20 },
   clearable: { type: Boolean, default: true },
   yearFilter: { type: Boolean, default: false }
 })
-
 const emit = defineEmits(['update:modelValue', 'change'])
-
-const cur = currentYear()
-const allYears = getGradeYears()
-
-// 在校三届（优先）：当前年、+1、+2
-const priorityYears = computed(() => {
-  return [cur, cur + 1, cur + 2].map(y => ({
-    year: y,
-    label: gradeLabel(y)
-  }))
+const school = useSchoolStore()
+const selectedGrade = ref('')
+const grades = computed(() => [...new Set([...(school.grades.length ? school.grades : getGradeYears().map(year => `${year}级`)), selectedGrade.value].filter(Boolean))])
+const classValue = computed(() => school.isGrade(props.modelValue) ? '' : props.modelValue)
+const classes = computed(() => {
+  const source = school.classes.length ? school.classes : getGradeYears().flatMap(year => getClassOptions(year, props.classCount).map(item => ({ name: item.value, grade: `${year}级` })))
+  return source.filter(item => !selectedGrade.value || item.grade === selectedGrade.value)
 })
-
-// 往届
-const historyYears = computed(() => {
-  return [cur - 1, cur - 2, cur - 3].map(y => ({
-    year: y,
-    label: `${y}级（往届）`
-  }))
-})
-
-function gradeLabel(year) {
-  const diff = year - cur
-  const gradeMap = { 0: '初三', 1: '初二', 2: '初一' }
-  const gradeName = gradeMap[diff] ? `（${gradeMap[diff]}）` : ''
-  return `${year}级${gradeName}`
-}
-
-const selectedYear = ref(null)
-const selectedClass = ref(null)
-
-// 解析 modelValue 初始化
-watch(() => props.modelValue, (val) => {
-  if (!val) {
-    selectedYear.value = null
-    selectedClass.value = null
-    return
-  }
-  const parsed = parseClassName(val)
-  if (parsed) {
-    selectedYear.value = parsed.year
-    selectedClass.value = parsed.classNum
-  }
+watch(() => [props.modelValue, school.classes, school.grades], () => {
+  selectedGrade.value = school.isGrade(props.modelValue) ? props.modelValue : school.gradeForClass(props.modelValue)
 }, { immediate: true })
-
-function onYearChange() {
-  selectedClass.value = null
-  if (props.yearFilter) {
-    const val = `${selectedYear.value}级`
-    emit('update:modelValue', val)
-    emit('change', val)
-  } else {
-    emit('update:modelValue', '')
-    emit('change', '')
-  }
+function publish(value) { emit('update:modelValue', value || ''); emit('change', value || '') }
+async function onGradeChange(value) {
+  publish(props.yearFilter ? value : '')
+  await nextTick()
+  selectedGrade.value = value || ''
 }
-
-function onClassChange() {
-  if (selectedYear.value && selectedClass.value) {
-    const val = `${selectedYear.value}级${selectedClass.value}班`
-    emit('update:modelValue', val)
-    emit('change', val)
-  }
-}
+function onClassChange(value) { publish(value) }
+onMounted(() => school.loadDirectory().catch(() => {}))
 </script>
 
 <style scoped>
-.class-selector {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
+.class-selector { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 </style>

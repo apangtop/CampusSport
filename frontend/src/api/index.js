@@ -36,7 +36,7 @@ export const eventApi = {
   create: data => request.post('/events/', data),
   update: (id, data) => request.patch(`/events/${id}/`, data),
   delete: id => request.delete(`/events/${id}/`),
-  participants: id => request.get(`/events/${id}/participants/`),
+  participants: (id, params) => request.get(`/events/${id}/participants/`, { params }),
   autoAssignLanes: (id, data) => request.post(`/events/${id}/auto_assign_lanes/`, data)
 }
 
@@ -84,6 +84,7 @@ export const teamRegistrationApi = {
 
 // ===== 成绩 =====
 export const scoreApi = {
+  delete: id => request.delete(`/scores/${id}/`),
   list: params => request.get('/scores/', { params }),
   create: data => request.post('/scores/', data),
   update: (id, data) => request.patch(`/scores/${id}/`, data),
@@ -95,6 +96,8 @@ export const scoreApi = {
 
 // ===== 团体成绩 =====
 export const teamScoreApi = {
+  batchSubmit: data => request.post('/team-scores/batch_submit/', data),
+  delete: id => request.delete(`/team-scores/${id}/`),
   list: params => request.get('/team-scores/', { params }),
   create: data => request.post('/team-scores/', data),
   update: (id, data) => request.patch(`/team-scores/${id}/`, data)

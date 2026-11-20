@@ -134,6 +134,7 @@ class Schedule(models.Model):
         verbose_name = '赛程'
         verbose_name_plural = '赛程'
         ordering = ['scheduled_time', 'group_number']
+        constraints = [models.UniqueConstraint(fields=['event','stage','group_number'], name='event_stage_group_unique')]
 
     def __str__(self):
         return f'{self.event.name} {self.get_stage_display()} 第{self.group_number}组'

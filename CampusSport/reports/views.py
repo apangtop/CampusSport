@@ -1,3 +1,5 @@
+from CampusSport.input_validation import object_data, query_id
+from rest_framework import serializers
 import io
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
@@ -466,11 +468,13 @@ def build_result_report_excel(sports_meet):
         c.border = thin_border
         points_ws.column_dimensions[get_column_letter(col)].width = w
 
-    class_points = ClassPoints.objects.filter(sports_meet=sports_meet).order_by('rank')
+    class_points = ClassPoints.objects.filter(sports_meet=sports_meet, grade='').order_by('rank')
     for r_idx, cp in enumerate(class_points, 2):
         for col, val in enumerate([cp.rank, cp.class_name, cp.total_points,
                                    cp.gold_medals, cp.silver_medals, cp.bronze_medals], 1):
             c = points_ws.cell(row=r_idx, column=col, value=val)
+            if isinstance(val, str):
+                c.data_type = 's'
             c.font = normal_font
             c.alignment = center_align
             c.border = thin_border
@@ -478,7 +482,9 @@ def build_result_report_excel(sports_meet):
     # 各项目成绩页
     events = sports_meet.events.select_related('referee').all()
     for event in events:
-        ws = wb.create_sheet(event.name[:28])
+        import re
+        title = re.sub(r'[\\/*?:\[\]]', '_', event.name)[:28] or '比赛项目'
+        ws = wb.create_sheet(title)
         ws.merge_cells('A1:F1')
         ws['A1'] = f'{event.name} 成绩单'
         ws['A1'].font = XFont(name='微软雅黑', size=13, bold=True)
@@ -495,7 +501,7 @@ def build_result_report_excel(sports_meet):
             ws.column_dimensions[get_column_letter(col)].width = w
 
         scores = Score.objects.filter(
-            registration__event=event
+            registration__event=event, registration__status='approved'
         ).select_related('registration__student').order_by('stage', 'rank')
         for r_idx, score in enumerate(scores, 3):
             for col, val in enumerate([
@@ -504,10 +510,24 @@ def build_result_report_excel(sports_meet):
                 score.points, score.get_stage_display()
             ], 1):
                 c = ws.cell(row=r_idx, column=col, value=val)
+                if isinstance(val, str):
+                    c.data_type = 's'
                 c.font = normal_font
                 c.alignment = center_align
                 c.border = thin_border
 
+        from scores.models import TeamScore
+        for team_score in TeamScore.objects.filter(team_registration__event=event,
+                team_registration__status='approved').select_related('team_registration').order_by('stage', 'rank'):
+            row = ws.max_row + 1
+            for col, val in enumerate([team_score.rank or '-', '团体', team_score.team_registration.class_name,
+                    team_score.result or '-', team_score.points, team_score.get_stage_display()], 1):
+                c = ws.cell(row=row, column=col, value=val)
+                if isinstance(val, str):
+                    c.data_type = 's'
+                c.font = normal_font
+                c.alignment = center_align
+                c.border = thin_border
     return wb
 
 
@@ -515,13 +535,20 @@ def build_result_report_excel(sports_meet):
 #  ViewSet
 # ─────────────────────────────────────────────
 
-class ReportViewSet(viewsets.ModelViewSet):
+class ReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Report
+        fields = ['id', 'sports_meet', 'report_type', 'file_format', 'created_at']
+
+
+class ReportViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = ReportSerializer
     queryset = Report.objects.all()
     permission_classes = [IsAdmin]
 
     def get_queryset(self):
         qs = super().get_queryset()
-        meet_id = self.request.query_params.get('sports_meet')
+        meet_id = query_id(self.request.query_params, 'sports_meet')
         if meet_id:
             qs = qs.filter(sports_meet_id=meet_id)
         return qs
@@ -529,7 +556,7 @@ class ReportViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def generate_order_book(self, request):
         """生成并下载秩序册 Word (.docx)"""
-        meet_id = request.query_params.get('sports_meet_id')
+        meet_id = serializers.IntegerField(min_value=1).run_validation(request.query_params.get('sports_meet_id'))
         if not meet_id:
             return Response({'detail': '需要 sports_meet_id 参数'}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -547,16 +574,16 @@ class ReportViewSet(viewsets.ModelViewSet):
             buffer.getvalue(),
             content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         )
-        response['Content-Disposition'] = (
-            f'attachment; filename="{filename.encode("utf-8").decode("latin-1")}"'
-        )
+        from urllib.parse import quote
+        filename = ''.join(char for char in filename if ord(char) >= 32 and ord(char) != 127)
+        response['Content-Disposition'] = "attachment; filename*=UTF-8''" + quote(filename, safe='')
         response['Access-Control-Expose-Headers'] = 'Content-Disposition'
         return response
 
     @action(detail=False, methods=['get'])
     def generate_result_report(self, request):
         """生成并下载成绩报表 Excel"""
-        meet_id = request.query_params.get('sports_meet_id')
+        meet_id = serializers.IntegerField(min_value=1).run_validation(request.query_params.get('sports_meet_id'))
         if not meet_id:
             return Response({'detail': '需要 sports_meet_id 参数'}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -574,8 +601,8 @@ class ReportViewSet(viewsets.ModelViewSet):
             buffer.getvalue(),
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response['Content-Disposition'] = (
-            f'attachment; filename="{filename.encode("utf-8").decode("latin-1")}"'
-        )
+        from urllib.parse import quote
+        filename = ''.join(char for char in filename if ord(char) >= 32 and ord(char) != 127)
+        response['Content-Disposition'] = "attachment; filename*=UTF-8''" + quote(filename, safe='')
         response['Access-Control-Expose-Headers'] = 'Content-Disposition'
         return response

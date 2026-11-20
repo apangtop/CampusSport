@@ -34,7 +34,7 @@
               </el-tag>
             </div>
             <div class="event-info">👤 裁判：{{ ev.referee_name || '待定' }}</div>
-            <div class="event-info">📋 本班已报 {{ classRegCounts[ev.id] || 0 }} / {{ ev.max_per_class }} 人</div>
+            <div class="event-info">📋 本班已报 {{ classRegCounts[ev.id] || 0 }} / {{ ['relay', 'team_confrontation'].includes(ev.event_type) ? 1 : ev.max_per_class }} {{ ['relay', 'team_confrontation'].includes(ev.event_type) ? '队' : '人' }}</div>
             <div class="event-info">🏃 {{ stageLabel(ev.stage_type) }} · {{ unitLabel(ev.result_unit) }}</div>
           </el-card>
         </div>
@@ -46,13 +46,16 @@
 </template>
 
 <script setup>
+import { useSchoolStore } from '@/stores/school'
+const school = useSchoolStore()
+import { isActiveRegistration, loadAllPages } from '@/utils/registration'
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { meetApi, eventApi, registrationApi, teamRegistrationApi } from '@/api'
 import { extractGrade, shortDatetime } from '@/utils/format'
 
 const auth = useAuthStore()
-const teacherGrade = extractGrade(auth.user?.class_name)
+const teacherGrade = computed(() => school.gradeForClass(auth.user?.class_name))
 const meets = ref([])
 const events = ref([])
 const classRegCounts = ref({}) // event_id → 本班已报人数
@@ -62,7 +65,7 @@ const filterMeet = ref('')
 const currentMeet = computed(() => meets.value.find(m => m.id === filterMeet.value))
 
 const filteredEvents = computed(() => events.value.filter(e =>
-  !e.grade || e.grade === teacherGrade
+  !e.grade || e.grade === teacherGrade.value
 ))
 
 const groupedEvents = computed(() => {
@@ -87,24 +90,31 @@ const eventColors = { track:'#409eff', field:'#67c23a', fun_individual:'#e6a23c'
 const eventColor = t => eventColors[t] || '#909399'
 const statusLabel = s => ({ preparing:'筹备中', registration:'报名中', ongoing:'进行中', finished:'已结束' })[s] || s
 
+let loadVersion = 0
 async function loadEvents() {
   if (!filterMeet.value) return
+  const version = ++loadVersion
   loading.value = true
-  const [evRes, regRes] = await Promise.all([
-    eventApi.list({ sports_meet: filterMeet.value, page_size: 200 }),
-    registrationApi.list({ sports_meet: filterMeet.value, class_name: auth.user?.class_name, page_size: 200 })
+  try {
+  const [evRes, regRes, teamRes] = await Promise.all([
+    loadAllPages(eventApi.list, { sports_meet: filterMeet.value }),
+    loadAllPages(registrationApi.list, { sports_meet: filterMeet.value, class_name: auth.user?.class_name }),
+    loadAllPages(teamRegistrationApi.list, { sports_meet: filterMeet.value, class_name: auth.user?.class_name })
   ])
+  if (version !== loadVersion) return
   events.value = evRes.results || evRes
   const counts = {}
   ;(regRes.results || regRes).forEach(r => {
-    if (r.status !== 'cancelled') counts[r.event] = (counts[r.event] || 0) + 1
+    if (isActiveRegistration(r)) counts[r.event] = (counts[r.event] || 0) + 1
   })
+  ;(teamRes.results || teamRes).filter(isActiveRegistration).forEach(r => { counts[r.event] = (counts[r.event] || 0) + 1 })
   classRegCounts.value = counts
-  loading.value = false
+  } finally { if (version === loadVersion) loading.value = false }
 }
 
 onMounted(async () => {
-  const res = await meetApi.list()
+  await school.loadDirectory()
+  const res = await loadAllPages(meetApi.list)
   meets.value = (res.results || res).filter(m => m.status !== 'preparing')
   if (meets.value.length) {
     const reg = meets.value.find(m => m.status === 'registration')

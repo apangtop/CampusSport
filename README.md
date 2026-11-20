@@ -3,7 +3,7 @@
 ## 技术栈
 - **后端**：Django 3.2 LTS + Django REST Framework + JWT 认证
 - **前端**：Vue 3 + Vite + Element Plus + Pinia
-- **数据库**：MySQL 5.7
+- **数据库**：MySQL（Docker 使用 8.0）
 
 ## 项目结构
 ```
@@ -21,7 +21,7 @@ CampusSport/
 ## 环境要求
 - Python 3.9+
 - Node.js 18+
-- MySQL 5.7
+- MySQL 8.0（Docker 默认配置）
 
 ## 快速启动
 
@@ -35,12 +35,8 @@ pip install -r requirements.txt
 # 数据库迁移（首次运行）
 python manage.py migrate
 
-# 创建管理员账号（首次运行）
-python manage.py shell -c "
-from accounts.models import User
-u = User.objects.create_superuser('admin', '', 'admin123')
-u.role = 'admin'; u.real_name = '体育老师'; u.save()
-"
+# 初始化学校与管理员（首次空库使用，密码由终端交互输入）
+python manage.py bootstrap_school --school "你的学校全称" --username school_admin
 
 # 启动服务
 python manage.py runserver 0.0.0.0:8000
@@ -60,12 +56,13 @@ npm run dev
 | http://localhost:8000/api | 后端 API |
 | http://localhost:8000/admin | Django 管理后台 |
 
-## 默认账号
-| 账号 | 密码 | 角色 |
-|------|------|------|
-| admin | admin123 | 体育老师（全部权限） |
+## 学校初始化
 
-> 体育老师登录后在「账号管理」中创建班主任和裁判账号
+正式安装没有通用默认账号。使用 `bootstrap_school` 设置学校名称并创建应用管理员，密码不会写入命令参数或文档。该管理员用于系统前端；如需 Django 管理后台，另用 `createsuperuser` 创建维护账号。
+
+登录后先进入「学校设置」配置班级与年级，再在「账号管理」创建班主任和裁判。小学、初中、高中及自定义班级名称均可配置；旧的 `2028级1班` 格式仍可使用。
+
+按每校独立部署交付，每校使用独立数据库、密钥和文件目录。详见 [学校交付说明](SCHOOL_DELIVERY.md)。
 
 ## 主要功能
 
@@ -74,7 +71,7 @@ npm run dev
 - **运动会管理**：创建、编辑、状态流转（筹备中→报名中→进行中→已结束）
 - **比赛项目管理**：径赛/田赛/趣味/对抗/接力，支持多阶段赛制
 - **报名管理**：班主任为本班学生报名，体育老师审核，报名上限自动校验
-- **秩序册生成**：一键导出 Excel，含封面/赛程总览/各项目参赛名单
+- **秩序册生成**：一键导出 Word，含封面/赛程总览/各项目参赛名单
 
 ### P1 重要功能
 - **成绩录入**：裁判按项目录入成绩，自动计算排名和积分

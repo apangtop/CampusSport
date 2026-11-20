@@ -46,18 +46,21 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { loadAllPages } from '@/utils/registration'
+import { useSchoolStore } from '@/stores/school'
+const school = useSchoolStore()
+import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { meetApi, pointsApi } from '@/api'
 import { extractGrade } from '@/utils/format'
 
 const auth = useAuthStore()
-const teacherGrade = extractGrade(auth.user?.class_name)
+const teacherGrade = computed(() => school.gradeForClass(auth.user?.class_name))
 const meets = ref([])
 const points = ref([])
 const loading = ref(false)
 const filterMeet = ref('')
-const filterGrade = ref(teacherGrade)
+const filterGrade = ref(teacherGrade.value)
 
 const rowClass = ({ row }) => {
   if (row.class_name === auth.user?.class_name) return 'row-my-class'
@@ -68,13 +71,15 @@ async function load() {
   if (!filterMeet.value) return
   loading.value = true
   const params = { sports_meet: filterMeet.value }
-  if (filterGrade.value) params.grade = filterGrade.value
-  const res = await pointsApi.list({ ...params, page_size: 200 })
+  params.grade = filterGrade.value
+  const res = await loadAllPages(pointsApi.list, params)
   points.value = res.results || res
   loading.value = false
 }
 
 onMounted(async () => {
+  await school.loadDirectory()
+  filterGrade.value = teacherGrade.value
   const res = await meetApi.list()
   meets.value = res.results || res
   if (meets.value.length) { filterMeet.value = meets.value[0].id; load() }

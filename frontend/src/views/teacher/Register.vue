@@ -4,7 +4,7 @@
       <template #header>
         <div class="card-header">
           <span style="font-size:16px;font-weight:600">报名管理 · {{ auth.user?.class_name }}</span>
-          <el-select v-model="selectedMeet" style="width:240px" @change="loadEvents">
+          <el-select v-model="selectedMeet" :disabled="busy" style="width:240px" @change="loadEvents">
             <el-option v-for="m in meets" :key="m.id" :label="m.name" :value="m.id" />
           </el-select>
         </div>
@@ -24,6 +24,7 @@
         </template>
       </el-alert>
 
+      <el-alert v-if="currentMeet && !canRegister" type="warning" :closable="false" title="报名已截止，当前仅可查看报名记录" style="margin-bottom:12px" />
       <el-tabs v-model="registerMode" @tab-change="onModeChange">
         <!-- ====== 个人项目 ====== -->
         <el-tab-pane label="个人项目" name="individual">
@@ -31,7 +32,7 @@
             <el-col :xs="24" :md="14">
               <el-form label-width="90px" size="default">
                 <el-form-item label="比赛项目">
-                  <el-select v-model="selectedEvent" style="width:100%" placeholder="选择个人项目" clearable @change="onEventSelect" v-loading="eventsLoading">
+                  <el-select v-model="selectedEvent" :disabled="busy || !canRegister" style="width:100%" placeholder="选择个人项目" clearable @change="onEventSelect" v-loading="eventsLoading">
                     <el-option-group v-for="g in groupedIndividualEvents" :key="g.label" :label="g.label">
                       <el-option v-for="e in g.events" :key="e.id"
                         :label="`${e.name}（${genderLabel(e.gender)} 本班${classRegCounts[e.id] || 0}/${e.max_per_class}）`"
@@ -63,7 +64,7 @@
                   <div style="max-height:240px;overflow-y:auto;border:1px solid #ebeef5;border-radius:6px;padding:8px">
                     <el-checkbox-group v-model="selectedStudents">
                       <div v-for="s in filteredEligibleStudents" :key="s.id" style="margin-bottom:3px;display:flex;align-items:center">
-                        <el-checkbox :label="s.id" :disabled="s._disabled">
+                        <el-checkbox :label="s.id" :disabled="busy || !canRegister || s._disabled || (selectedStudents.length >= Math.min(selectedEventInfo?.remaining || 0, 50) && !selectedStudents.includes(s.id))">
                           <span :style="s._disabled ? 'color:#c0c4cc' : ''">{{ s.name }}</span>
                         </el-checkbox>
                         <el-tag size="small" style="margin-left:4px" :type="s.gender === 'male' ? '' : 'danger'">{{ s.gender === 'male' ? '男' : '女' }}</el-tag>
@@ -81,7 +82,7 @@
                 <span v-else style="color:#f56c6c"> · 已满</span>
               </div>
               <el-button type="primary" :loading="submitting"
-                :disabled="!selectedEvent || !selectedStudents.length || !selectedEventInfo?.remaining"
+                :disabled="busy || !canRegister || !selectedEvent || !selectedStudents.length || selectedStudents.length > selectedEventInfo?.remaining"
                 @click="submitRegister" style="width:100%">
                 确认报名（{{ selectedStudents.length }} 人）
               </el-button>
@@ -94,7 +95,7 @@
                     <el-descriptions-item label="项目">{{ selectedEventName }}</el-descriptions-item>
                     <el-descriptions-item label="赛制">{{ stageLabel(currentEventObj?.stage_type) }}</el-descriptions-item>
                     <el-descriptions-item label="本班名额">{{ selectedEventInfo.existing }}/{{ selectedEventInfo.max }}人</el-descriptions-item>
-                    <el-descriptions-item label="限报">{{ currentMeet?.max_events_per_person }}项/人</el-descriptions-item>
+                    <el-descriptions-item label="限报">{{ personalCap }}项/人（仅个人项目）</el-descriptions-item>
                   </el-descriptions>
                 </el-card>
 
@@ -114,14 +115,14 @@
                     </el-table-column>
                     <el-table-column prop="status" label="状态" width="80" align="center">
                       <template #default="{ row }">
-                        <el-tag :type="row.status === 'approved' ? 'success' : 'warning'" size="small">
+                        <el-tag :type="row.status === 'approved' ? 'success' : row.status === 'rejected' ? 'danger' : row.status === 'cancelled' ? 'info' : 'warning'" size="small">
                           {{ row.status === 'approved' ? '已审核' : '待审' }}
                         </el-tag>
                       </template>
                     </el-table-column>
-                    <el-table-column label="操作" width="70" align="center">
+                    <el-table-column label="操作" width="140" align="center">
                       <template #default="{ row }">
-                        <el-popconfirm title="确认取消此报名？" @confirm="cancelReg(row)">
+                        <el-popconfirm v-if="canRegister" title="确认取消此报名？" @confirm="cancelReg(row)">
                           <template #reference>
                             <el-button link type="danger" size="small">取消</el-button>
                           </template>
@@ -146,7 +147,7 @@
             <el-col :xs="24" :md="12">
               <el-form label-width="90px">
                 <el-form-item label="团体项目">
-                  <el-select v-model="selectedTeamEvent" style="width:100%" placeholder="选择团体项目" clearable>
+                  <el-select v-model="selectedTeamEvent" :disabled="busy || !canRegister" style="width:100%" placeholder="选择团体项目" clearable>
                     <el-option-group v-for="g in groupedTeamEvents" :key="g.label" :label="g.label">
                       <el-option v-for="e in g.events" :key="e.id"
                         :label="`${e.name}（${genderLabel(e.gender)} ${e.team_size}人/队）`"
@@ -161,7 +162,7 @@
                   <div style="max-height:250px;overflow-y:auto;border:1px solid #ebeef5;border-radius:6px;padding:8px">
                     <el-checkbox-group v-model="teamMembers">
                       <div v-for="s in filteredTeamStudents" :key="s.id" style="margin-bottom:4px">
-                        <el-checkbox :label="s.id" :disabled="teamMembers.length >= currentTeamEvent?.team_size && !teamMembers.includes(s.id)">
+                        <el-checkbox :label="s.id" :disabled="busy || !canRegister || (teamMembers.length >= currentTeamEvent?.team_size && !teamMembers.includes(s.id))">
                           {{ s.name }} ({{ s.gender === 'male' ? '男' : '女' }})
                         </el-checkbox>
                       </div>
@@ -170,9 +171,9 @@
                 </el-form-item>
               </el-form>
               <el-button type="primary" :loading="teamSubmitting"
-                :disabled="!selectedTeamEvent || teamMembers.length !== (currentTeamEvent?.team_size || 0)"
+                :disabled="busy || !canRegister || teamAlreadyRegistered || !selectedTeamEvent || !currentTeamEvent?.team_size || teamMembers.length !== currentTeamEvent.team_size"
                 @click="submitTeamRegister" style="width:100%">
-                {{ teamMembers.length && currentTeamEvent && teamMembers.length < currentTeamEvent.team_size ? `还需 ${currentTeamEvent.team_size - teamMembers.length} 人` : '提交团体报名' }}
+                {{ teamAlreadyRegistered ? '本班已报名此项目' : teamEditingId ? '保存队员调整' : teamMembers.length && currentTeamEvent && teamMembers.length < currentTeamEvent.team_size ? `还需 ${currentTeamEvent.team_size - teamMembers.length} 人` : '提交团体报名' }}
               </el-button>
             </el-col>
             <el-col :xs="24" :md="12">
@@ -190,14 +191,15 @@
                   </el-table-column>
                   <el-table-column prop="status" label="状态" width="80" align="center">
                     <template #default="{ row }">
-                      <el-tag :type="row.status === 'approved' ? 'success' : 'warning'" size="small">
-                        {{ row.status === 'approved' ? '已通过' : '待审核' }}
+                      <el-tag :type="row.status === 'approved' ? 'success' : row.status === 'rejected' ? 'danger' : row.status === 'cancelled' ? 'info' : 'warning'" size="small">
+                        {{ registrationStatusLabel(row.status) }}
                       </el-tag>
                     </template>
                   </el-table-column>
-                  <el-table-column label="操作" width="70" align="center">
+                  <el-table-column label="操作" width="140" align="center">
                     <template #default="{ row }">
-                      <el-popconfirm title="确认取消此团体报名？" @confirm="cancelTeamReg(row)">
+                      <el-button v-if="canRegister && isActiveRegistration(row)" link type="primary" size="small" :disabled="busy" @click="editTeam(row)">调整队员</el-button>
+                      <el-popconfirm v-if="canRegister && isActiveRegistration(row)" title="确认取消此团体报名？" @confirm="cancelTeamReg(row)">
                         <template #reference>
                           <el-button link type="danger" size="small">取消</el-button>
                         </template>
@@ -215,256 +217,174 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { useSchoolStore } from '@/stores/school'
+const school = useSchoolStore()
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { meetApi, eventApi, studentApi, registrationApi, teamRegistrationApi } from '@/api'
 import { extractGrade, shortDatetime } from '@/utils/format'
+import { isActiveRegistration, individualCap, registrationOpen, registrationCounts, loadAllPages, registrationStatusLabel } from '@/utils/registration'
 
 const auth = useAuthStore()
-const teacherGrade = extractGrade(auth.user?.class_name)
 const registerMode = ref('individual')
-const meets = ref([])
-const events = ref([])
-const students = ref([])
-const studentRegCounts = ref({}) // student_id → 已报项数
-const classRegCounts = ref({})   // event_id → 本班已报人数
-const teamRegistrations = ref([])
-const selectedMeet = ref('')
-const selectedEvent = ref('')
-const selectedTeamEvent = ref('')
-const selectedStudents = ref([])
-const teamMembers = ref([])
-const submitting = ref(false)
-const teamSubmitting = ref(false)
-const eventsLoading = ref(false)
-const studentFilterGender = ref('')
-const studentFilterReg = ref('')
-const myRegistrations = ref([])  // 本班所有报名记录
-
-const genderMap = { male:'男', female:'女', mixed:'混合' }
-const genderLabel = g => genderMap[g] || g
-const typeMap = { track:'径赛', field:'田赛', relay:'接力团体' }
-const typeLabel = t => typeMap[t] || t
-
+const meets = ref([]), events = ref([]), students = ref([])
+const teamRegistrations = ref([]), myRegistrations = ref([])
+const selectedMeet = ref(''), selectedEvent = ref(''), selectedTeamEvent = ref('')
+const selectedStudents = ref([]), teamMembers = ref([]), teamEditingId = ref(null)
+const submitting = ref(false), teamSubmitting = ref(false), eventsLoading = ref(false)
+const studentFilterGender = ref(''), studentFilterReg = ref('')
+const now = ref(Date.now())
+const timer = setInterval(() => { now.value = Date.now() }, 1000)
+onUnmounted(() => clearInterval(timer))
+const genderLabel = value => ({male:'男',female:'女',mixed:'混合'})[value] || value
+const typeLabel = value => ({track:'径赛',field:'田赛',fun_individual:'趣味个人',relay:'接力团体',team_confrontation:'对抗团体'})[value] || value
+const stageLabel = value => ({single:'直接决赛',two:'初赛+决赛',three:'三阶段'})[value] || value
 const currentMeet = computed(() => meets.value.find(m => m.id === selectedMeet.value))
-
-const individualEvents = computed(() => events.value.filter(e =>
-  !['relay', 'team_confrontation'].includes(e.event_type) &&
-  (!e.grade || e.grade === teacherGrade)
-))
-const teamEvents = computed(() => events.value.filter(e =>
-  ['relay', 'team_confrontation'].includes(e.event_type) &&
-  (!e.grade || e.grade === teacherGrade)
-))
-
-const groupedIndividualEvents = computed(() => {
-  const groups = {}
-  individualEvents.value.forEach(e => {
-    const t = e.event_type
-    if (!groups[t]) groups[t] = { label: typeLabel(t), events: [] }
-    groups[t].events.push(e)
-  })
-  return Object.values(groups)
-})
-const groupedTeamEvents = computed(() => {
-  const groups = {}
-  teamEvents.value.forEach(e => {
-    const t = e.event_type
-    if (!groups[t]) groups[t] = { label: typeLabel(t), events: [] }
-    groups[t].events.push(e)
-  })
-  return Object.values(groups)
-})
-
-const currentTeamEvent = computed(() => events.value.find(e => e.id == selectedTeamEvent.value))
+const canRegister = computed(() => registrationOpen(currentMeet.value, now.value))
+const busy = computed(() => submitting.value || teamSubmitting.value || eventsLoading.value)
+const grades = computed(() => new Set(students.value.map(s => s.grade).filter(Boolean)))
+const gradeMatches = event => !event.grade || grades.value.has(event.grade) || event.grade === school.gradeForClass(auth.user?.class_name)
+const individualEvents = computed(() => events.value.filter(e => !['relay','team_confrontation'].includes(e.event_type) && gradeMatches(e)))
+const teamEvents = computed(() => events.value.filter(e => ['relay','team_confrontation'].includes(e.event_type) && gradeMatches(e)))
+function groupEvents(items) {
+  const map={}
+  items.forEach(e => { (map[e.event_type] ||= {label:typeLabel(e.event_type),events:[]}).events.push(e) })
+  return Object.values(map)
+}
+const groupedIndividualEvents = computed(() => groupEvents(individualEvents.value))
+const groupedTeamEvents = computed(() => groupEvents(teamEvents.value))
 const currentEventObj = computed(() => events.value.find(e => e.id === selectedEvent.value))
+const currentTeamEvent = computed(() => events.value.find(e => e.id === selectedTeamEvent.value))
 const selectedEventName = computed(() => currentEventObj.value?.name || '')
-
+const counts = computed(() => registrationCounts(myRegistrations.value))
+const studentRegCounts = computed(() => counts.value.students)
+const classRegCounts = computed(() => counts.value.events)
+const personalCap = computed(() => individualCap(currentMeet.value,currentEventObj.value))
 const selectedEventInfo = computed(() => {
-  const ev = currentEventObj.value
-  if (!ev) return null
-  const existing = classRegCounts.value[ev.id] || 0
-  return { max: ev.max_per_class, existing, remaining: Math.max(0, ev.max_per_class - existing) }
+  const e=currentEventObj.value
+  if(!e) return null
+  const existing=classRegCounts.value[e.id] || 0
+  return {max:e.max_per_class,existing,remaining:Math.max(0,e.max_per_class-existing)}
 })
+const registeredStudents = computed(() => myRegistrations.value.filter(r => r.event === selectedEvent.value && isActiveRegistration(r)))
+const registeredStudentIds = computed(() => new Set(registeredStudents.value.map(r => r.student)))
+const eligibleStudents = computed(() => students.value.map(s => {
+  const ev=currentEventObj.value, count=studentRegCounts.value[s.id] || 0
+  let reason=''
+  if(!ev) reason='请先选择项目'
+  else if(registeredStudentIds.value.has(s.id)) reason='已报本项目'
+  else if(ev.gender!=='mixed' && s.gender!==ev.gender) reason='性别不符'
+  else if(ev.grade && s.grade!==ev.grade) reason='年级不符'
+  else if(count>=personalCap.value) reason=`已报${count}项，上限${personalCap.value}项`
+  return {...s,_regCount:count,_disabled:!!reason,_reason:reason}
+}))
+const filteredEligibleStudents = computed(() => eligibleStudents.value.filter(s =>
+  (!studentFilterGender.value || s.gender===studentFilterGender.value) &&
+  (!studentFilterReg.value || (studentFilterReg.value==='available' ? !s._disabled :
+    studentFilterReg.value==='full' ? s._disabled : s._regCount===Number(studentFilterReg.value)))
+))
+const filteredTeamStudents = computed(() => students.value.filter(s => {
+  const e=currentTeamEvent.value
+  return e && (e.gender==='mixed' || s.gender===e.gender) && (!e.grade || s.grade===e.grade)
+}))
+const activeTeam = computed(() => teamRegistrations.value.find(r => r.event===selectedTeamEvent.value && isActiveRegistration(r)))
+const teamAlreadyRegistered = computed(() => !!activeTeam.value && activeTeam.value.id!==teamEditingId.value)
 
-const stageLabel = (s) => ({ single:'直接决赛', two:'初赛+决赛', three:'三阶段' })[s] || s
-
-const registeredStudentIds = computed(() => {
-  if (!selectedEvent.value) return new Set()
-  return new Set(
-    myRegistrations.value
-      .filter(r => r.event === selectedEvent.value && r.status !== 'cancelled')
-      .map(r => r.student)
-  )
-})
-
-const eligibleStudents = computed(() => {
-  const ev = events.value.find(e => e.id === selectedEvent.value)
-  const max = currentMeet.value?.max_events_per_person || 3
-  const regIds = registeredStudentIds.value
-  return students.value.map(s => {
-    const regCount = studentRegCounts.value[s.id] || 0
-    const alreadyInEvent = regIds.has(s.id)
-    const wrongGender = ev && ev.gender !== 'mixed' && s.gender !== ev.gender
-    const wrongGrade = ev && ev.grade && s.grade !== ev.grade
-    let reason = ''
-    if (alreadyInEvent) reason = '已报本项目'
-    else if (wrongGender) reason = '性别不符'
-    else if (wrongGrade) reason = '年级不符'
-    else if (regCount >= max) reason = `已报${regCount}项`
-    return {
-      ...s,
-      _regCount: regCount,
-      _disabled: alreadyInEvent || regCount >= max || wrongGender || wrongGrade,
-      _reason: reason
-    }
-  })
-})
-
-const filteredEligibleStudents = computed(() => {
-  let list = eligibleStudents.value
-  if (studentFilterGender.value) list = list.filter(s => s.gender === studentFilterGender.value)
-  if (studentFilterReg.value === 'available') list = list.filter(s => !s._disabled)
-  else if (studentFilterReg.value === 'full') list = list.filter(s => s._disabled)
-  else if (studentFilterReg.value) list = list.filter(s => s._regCount === parseInt(studentFilterReg.value))
-  return list
-})
-
-const registeredStudents = computed(() => {
-  if (!selectedEvent.value) return []
-  return myRegistrations.value.filter(r => r.event === selectedEvent.value && r.status !== 'cancelled')
-})
-
-const filteredTeamStudents = computed(() => {
-  const ev = currentTeamEvent.value
-  if (!ev) return students.value
-  let list = students.value
-  if (ev.gender !== 'mixed') list = list.filter(s => s.gender === ev.gender)
-  if (ev.grade) list = list.filter(s => s.grade === ev.grade)
-  return list
-})
-
+watch(selectedEvent, () => { selectedStudents.value=[] },{flush:'sync'})
+watch(selectedTeamEvent, () => { teamMembers.value=[];teamEditingId.value=null },{flush:'sync'})
+function onEventSelect() { selectedStudents.value=[] }
 function onModeChange() {
-  selectedStudents.value = []
-  teamMembers.value = []
-  selectedEvent.value = ''
-  selectedTeamEvent.value = ''
-  if (registerMode.value === 'team') loadTeamRegistrations()
+  selectedStudents.value=[];teamMembers.value=[];selectedEvent.value='';selectedTeamEvent.value=''
 }
 
-async function onEventSelect() {
-  selectedStudents.value = [...registeredStudentIds.value]
-}
-
+let loadVersion=0
 async function loadEvents() {
-  if (!selectedMeet.value) return
-  eventsLoading.value = true
-  const [evRes, regRes] = await Promise.all([
-    eventApi.list({ sports_meet: selectedMeet.value, page_size: 200 }),
-    registrationApi.list({ sports_meet: selectedMeet.value, class_name: auth.user.class_name, page_size: 200 })
-  ])
-  events.value = evRes.results || evRes
-  myRegistrations.value = regRes.results || regRes
-  // 统计每个学生已报项数 + 每个项目本班已报人数
-  const sCounts = {}
-  const eCounts = {}
-  ;(regRes.results || regRes).forEach(r => {
-    if (r.status !== 'cancelled') {
-      sCounts[r.student] = (sCounts[r.student] || 0) + 1
-      eCounts[r.event] = (eCounts[r.event] || 0) + 1
-    }
-  })
-  studentRegCounts.value = sCounts
-  classRegCounts.value = eCounts
-  eventsLoading.value = false
+  const meetId=selectedMeet.value, version=++loadVersion
+  selectedEvent.value='';selectedTeamEvent.value='';selectedStudents.value=[];teamMembers.value=[];teamEditingId.value=null
+  events.value=[];myRegistrations.value=[];teamRegistrations.value=[]
+  if(!meetId) return
+  eventsLoading.value=true
+  try {
+    const params={sports_meet:meetId,class_name:auth.user?.class_name}
+    const [ev,regs,teams]=await Promise.all([
+      loadAllPages(eventApi.list,{sports_meet:meetId}),loadAllPages(registrationApi.list,params),loadAllPages(teamRegistrationApi.list,params)
+    ])
+    if(version!==loadVersion) return
+    events.value=ev;myRegistrations.value=regs
+    teamRegistrations.value=teams.map(t=>({...t,event_name:ev.find(e=>e.id===t.event)?.name || ''}))
+  } finally { if(version===loadVersion) eventsLoading.value=false }
 }
-
-async function loadStudents() {
-  const res = await studentApi.list({ class_name: auth.user.class_name, page_size: 200 })
-  students.value = res.results || res
-}
-
-async function loadTeamRegistrations() {
-  const params = { class_name: auth.user.class_name }
-  if (selectedMeet.value) params.sports_meet = selectedMeet.value
-  const res = await teamRegistrationApi.list({ ...params, page_size: 200 })
-  const data = res.results || res
-  data.forEach(tr => {
-    if (tr.event) tr.event_name = events.value.find(e => e.id === tr.event)?.name || ''
-  })
-  teamRegistrations.value = data
+async function refreshRegistrations() {
+  const meetId=selectedMeet.value, version=loadVersion
+  const params={sports_meet:meetId,class_name:auth.user?.class_name}
+  const [regs,teams]=await Promise.all([loadAllPages(registrationApi.list,params),loadAllPages(teamRegistrationApi.list,params)])
+  if(version!==loadVersion || meetId!==selectedMeet.value) return
+  myRegistrations.value=regs
+  teamRegistrations.value=teams.map(t=>({...t,event_name:events.value.find(e=>e.id===t.event)?.name || ''}))
 }
 
 async function submitRegister() {
-  if (!selectedEvent.value || !selectedStudents.value.length) return
-  submitting.value = true
+  if(busy.value || !canRegister.value || !currentEventObj.value) return
+  const valid=new Set(eligibleStudents.value.filter(s=>!s._disabled).map(s=>s.id))
+  const selected=[...new Set(selectedStudents.value)].filter(id=>valid.has(id))
+  if(!selected.length) return ElMessage.warning('请选择可以报名的学生')
+  if(selected.length>selectedEventInfo.value.remaining || selected.length>50) return ElMessage.warning('超过可报名人数或单次50人上限')
+  submitting.value=true
   try {
-    const res = await registrationApi.bulkRegister({
-      event_id: selectedEvent.value,
-      student_ids: selectedStudents.value
-    })
-    const created = res.created || []
-    const errors = res.errors || []
-    if (created.length) ElMessage.success(`成功报名 ${created.length} 人：${created.join('、')}`)
-    if (errors.length) ElMessage.warning(errors.join('；'))
-    selectedStudents.value = []
-    const eid = selectedEvent.value
-    selectedEvent.value = ''
-    await loadEvents()
-    selectedEvent.value = eid
-  } catch (e) {
-    console.error('submitRegister error', e)
-  } finally { submitting.value = false }
-}
-
-async function cancelReg(row) {
-  await registrationApi.cancel(row.id)
-  ElMessage.success('已取消报名')
-  const eid = selectedEvent.value
-  selectedEvent.value = ''
-  await loadEvents()
-  selectedEvent.value = eid
-  selectedStudents.value = []
-}
-
-async function cancelTeamReg(row) {
-  await teamRegistrationApi.cancel(row.id)
-  ElMessage.success('已取消团体报名')
-  teamMembers.value = []
-  selectedTeamEvent.value = ''
-  loadTeamRegistrations()
-}
-
-async function submitTeamRegister() {
-  if (!currentTeamEvent.value) return
-  if (teamMembers.value.length !== currentTeamEvent.value.team_size) {
-    return ElMessage.warning(`需要选择 ${currentTeamEvent.value.team_size} 名队员`)
+    const res=await registrationApi.bulkRegister({event_id:selectedEvent.value,student_ids:selected})
+    if(res.created?.length) ElMessage.success(`成功报名 ${res.created.length} 人：${res.created.join('、')}`)
+    if(res.errors?.length) ElMessage.warning(res.errors.join('；'))
+    if(res.unchanged?.length && !res.created?.length) ElMessage.info('所选学生已报名本项目')
+    selectedStudents.value=[]
+  } finally {
+    try { await refreshRegistrations() } finally { submitting.value=false }
   }
-  teamSubmitting.value = true
+}
+async function cancelReg(row) {
+  if(busy.value || !canRegister.value) return
+  submitting.value=true
+  try { await registrationApi.cancel(row.id);ElMessage.success('已取消报名');selectedStudents.value=[];await refreshRegistrations() }
+  finally { submitting.value=false }
+}
+async function cancelTeamReg(row) {
+  if(busy.value || !canRegister.value) return
+  teamSubmitting.value=true
+  try { await teamRegistrationApi.cancel(row.id);ElMessage.success('已取消团体报名');selectedTeamEvent.value='';teamMembers.value=[];await refreshRegistrations() }
+  finally { teamSubmitting.value=false }
+}
+function editTeam(row) {
+  if(busy.value || !canRegister.value) return
+  selectedTeamEvent.value=row.event
+  teamMembers.value=[...(row.members || [])]
+  teamEditingId.value=row.id
+}
+async function submitTeamRegister() {
+  const event=currentTeamEvent.value
+  if(busy.value || !canRegister.value || !event || teamAlreadyRegistered.value) return
+  const valid=new Set(filteredTeamStudents.value.map(s=>s.id))
+  if(event.team_size<1) return ElMessage.warning('请联系体育老师配置每队人数')
+  if(teamMembers.value.length!==event.team_size || teamMembers.value.some(id=>!valid.has(id))) return ElMessage.warning(`请选择符合要求的 ${event.team_size} 名队员`)
+  teamSubmitting.value=true
   try {
-    await teamRegistrationApi.create({
-      event: selectedTeamEvent.value,
-      class_name: auth.user.class_name,
-      members: teamMembers.value
-    })
-    ElMessage.success('团体报名提交成功')
-    teamMembers.value = []
-    selectedTeamEvent.value = ''
-    loadTeamRegistrations()
-  } finally { teamSubmitting.value = false }
+    const data={event:event.id,class_name:auth.user.class_name,members:[...teamMembers.value]}
+    const result = teamEditingId.value
+      ? await teamRegistrationApi.update(teamEditingId.value,{members:data.members})
+      : await teamRegistrationApi.create(data)
+    ElMessage.success(teamEditingId.value ? result.status === 'approved' ? '队员未变更，审核状态保留' : '队员调整已保存，需重新审核' : '团体报名提交成功')
+    selectedTeamEvent.value='';teamMembers.value=[];teamEditingId.value=null
+  } finally { try { await refreshRegistrations() } finally { teamSubmitting.value=false } }
 }
 
 onMounted(async () => {
-  const res = await meetApi.list()
-  meets.value = (res.results || res).filter(m => m.status === 'registration')
-  if (meets.value.length) {
-    selectedMeet.value = meets.value[0].id
-    loadEvents()
-  }
-  loadStudents()
+  await school.loadDirectory()
+  const [allMeets,allStudents]=await Promise.all([loadAllPages(meetApi.list),loadAllPages(studentApi.list,{class_name:auth.user?.class_name})])
+  meets.value=allMeets.filter(m=>m.status==='registration');students.value=allStudents
+  selectedMeet.value=meets.value.find(m=>registrationOpen(m))?.id || meets.value[0]?.id || ''
+  if(selectedMeet.value) await loadEvents()
 })
 </script>
+
 
 <style scoped>
 .card-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }

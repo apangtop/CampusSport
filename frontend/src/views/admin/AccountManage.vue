@@ -129,7 +129,7 @@ async function save() {
 }
 
 async function resetPwd(row) {
-  await ElMessageBox.prompt('请输入新密码', '重置密码', { inputType: 'password', inputValue: '123456' })
+  await ElMessageBox.prompt('请输入新密码', '重置密码', { inputType: 'password', inputValue: '', inputValidator: value => value?.length >= 8 || '密码至少8个字符' })
     .then(async ({ value }) => {
       await userApi.resetPassword(row.id, { new_password: value })
       ElMessage.success('密码已重置')

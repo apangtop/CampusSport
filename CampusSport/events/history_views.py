@@ -1,3 +1,4 @@
+from CampusSport.input_validation import object_data, query_id
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions
@@ -33,8 +34,8 @@ class HistoryPointsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        meet_id = request.query_params.get('sports_meet')
-        qs = ClassPoints.objects.all()
+        meet_id = query_id(request.query_params, 'sports_meet')
+        qs = ClassPoints.objects.filter(sports_meet__status='finished', grade='')
         if meet_id:
             qs = qs.filter(sports_meet_id=meet_id)
         data = [
@@ -61,11 +62,13 @@ class HistoryEventBestView(APIView):
         event_name = request.query_params.get('event_name')
         if not event_name:
             # 返回所有项目名称列表
-            names = Event.objects.values_list('name', flat=True).distinct()
+            names = Event.objects.filter(sports_meet__status='finished').order_by().values_list('name', flat=True).distinct()
             return Response(list(names))
 
         scores = Score.objects.filter(
             registration__event__name=event_name,
+            registration__event__sports_meet__status='finished',
+            registration__status='approved',
             stage='final',
             rank=1,
             result_numeric__isnull=False
@@ -97,7 +100,11 @@ class StudentHistoryView(APIView):
         student_name = request.query_params.get('name')
         class_name = request.query_params.get('class_name')
 
-        qs = Score.objects.all()
+        qs = Score.objects.filter(registration__event__sports_meet__status='finished', registration__status='approved')
+        if request.user.role == 'teacher':
+            qs = qs.filter(registration__student__class_name=request.user.class_name)
+        elif request.user.role == 'referee':
+            qs = qs.filter(registration__event__referee=request.user)
         if student_name:
             qs = qs.filter(registration__student__name__icontains=student_name)
         if class_name:

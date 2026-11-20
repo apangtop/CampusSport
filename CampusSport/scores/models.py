@@ -14,6 +14,8 @@ class Score(models.Model):
 
     registration = models.ForeignKey(Registration, on_delete=models.CASCADE, related_name='scores', verbose_name='报名记录')
     stage = models.CharField('阶段', max_length=20, choices=STAGE_CHOICES, default='final')
+    schedule = models.ForeignKey(Schedule, on_delete=models.PROTECT, null=True, blank=True, related_name='+', verbose_name='录入时赛程')
+    lane = models.PositiveIntegerField('录入时道次/顺序', null=True, blank=True)
     result = models.CharField('成绩', max_length=50, blank=True)
     result_numeric = models.FloatField('数值成绩', null=True, blank=True)
     rank = models.PositiveIntegerField('名次', null=True, blank=True)
@@ -46,6 +48,8 @@ class TeamScore(models.Model):
 
     team_registration = models.ForeignKey(TeamRegistration, on_delete=models.CASCADE, related_name='scores', verbose_name='团体报名')
     stage = models.CharField('阶段', max_length=20, choices=STAGE_CHOICES, default='final')
+    schedule = models.ForeignKey(Schedule, on_delete=models.PROTECT, null=True, blank=True, related_name='+', verbose_name='录入时赛程')
+    lane = models.PositiveIntegerField('录入时道次/顺序', null=True, blank=True)
     result = models.CharField('成绩', max_length=50, blank=True)
     result_numeric = models.FloatField('数值成绩', null=True, blank=True)
     rank = models.PositiveIntegerField('名次', null=True, blank=True)
@@ -73,6 +77,7 @@ class ConfrontationRound(models.Model):
         verbose_name = '对抗局次'
         verbose_name_plural = '对抗局次'
         ordering = ['round_number']
+        constraints = [models.UniqueConstraint(fields=['team_score','round_number'], name='team_score_round_unique')]
 
 
 class ClassPoints(models.Model):

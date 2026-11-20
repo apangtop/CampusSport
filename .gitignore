@@ -29,3 +29,4 @@ frontend/dist/
 # Env
 .env
 .env.*
+!.env.example

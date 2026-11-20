@@ -1,4 +1,6 @@
+from CampusSport.input_validation import object_data, query_id
 import math
+from django.db import transaction
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -25,20 +27,27 @@ class SportsMeetViewSet(viewsets.ModelViewSet):
     queryset = SportsMeet.objects.all()
     permission_classes = [IsAdminOrReadOnly]
 
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        SportsMeet.objects.select_for_update().get(pk=self.get_object().pk)
+        return super().update(request, *args, **kwargs)
+
     def get_serializer_class(self):
         if self.action == 'retrieve':
             return SportsMeetDetailSerializer
         return SportsMeetSerializer
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdmin])
+    @transaction.atomic
     def set_status(self, request, pk=None):
-        meet = self.get_object()
-        new_status = request.data.get('status')
+        meet = SportsMeet.objects.select_for_update().get(pk=self.get_object().pk)
+        new_status = object_data(request).get('status')
         valid_statuses = [s[0] for s in SportsMeet.STATUS_CHOICES]
         if new_status not in valid_statuses:
             return Response({'detail': '无效状态'}, status=status.HTTP_400_BAD_REQUEST)
-        meet.status = new_status
-        meet.save()
+        serializer = SportsMeetSerializer(meet, data={'status':new_status}, partial=True, context={'request':request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
         return Response(SportsMeetSerializer(meet).data)
 
     @action(detail=True, methods=['get'])
@@ -48,15 +57,25 @@ class SportsMeetViewSet(viewsets.ModelViewSet):
         stage = request.query_params.get('stage', 'final')
         from registration.models import Registration
         from scores.models import Score
+        from scores.workflow import eligible_individuals
+        from scores.validation import stages
+        if stage not in ('preliminary','semifinal','final'):
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError('无效阶段')
         events = meet.events.all()
         data = []
         for ev in events:
-            total = Registration.objects.filter(
-                event=ev, status='approved'
-            ).count()
-            scored = Score.objects.filter(
-                registration__event=ev, stage=stage
-            ).count()
+            from registration.models import TeamRegistration
+            from scores.models import TeamScore
+            if ev.event_type in ('relay', 'team_confrontation'):
+                total = TeamRegistration.objects.filter(event=ev, status='approved').count() if stage in stages(ev) else 0
+                scored = TeamScore.objects.filter(team_registration__event=ev,
+                    team_registration__status='approved', stage=stage, result_numeric__isnull=False).count() if stage in stages(ev) else 0
+            else:
+                eligible = eligible_individuals(ev, stage) if stage in stages(ev) else Registration.objects.none()
+                total = eligible.count()
+                scored = Score.objects.filter(registration__in=eligible,
+                    registration__status='approved', stage=stage, result_numeric__isnull=False).count()
             data.append({
                 'event_id': ev.id,
                 'event_name': ev.name,
@@ -90,6 +109,12 @@ class EventViewSet(viewsets.ModelViewSet):
     queryset = Event.objects.select_related('sports_meet', 'referee').all()
     permission_classes = [IsAdminOrReadOnly]
 
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        from registration.services import lock_event
+        lock_event(self.get_object().pk)
+        return super().update(request, *args, **kwargs)
+
     def get_serializer_class(self):
         if self.action == 'list':
             return EventListSerializer
@@ -100,7 +125,7 @@ class EventViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role == 'referee':
             qs = qs.filter(referee=user, sports_meet__status='ongoing')
-        meet_id = self.request.query_params.get('sports_meet')
+        meet_id = query_id(self.request.query_params, 'sports_meet')
         if meet_id:
             qs = qs.filter(sports_meet_id=meet_id)
         event_type = self.request.query_params.get('type')
@@ -117,29 +142,59 @@ class EventViewSet(viewsets.ModelViewSet):
         event = self.get_object()
         from registration.models import Registration, TeamRegistration
         from registration.serializers import RegistrationDetailSerializer, TeamRegistrationSerializer
+        stage = request.query_params.get('stage')
+        if stage:
+            from scores.validation import stages
+            from rest_framework.exceptions import ValidationError
+            if stage not in stages(event): raise ValidationError('阶段不符合项目赛制')
+        context = {'request':request,'stage':stage}
         is_team = event.event_type in ('relay', 'team_confrontation')
         if is_team:
             teams = TeamRegistration.objects.filter(
                 event=event, status__in=['submitted', 'approved']
-            ).prefetch_related('members')
-            serializer = TeamRegistrationSerializer(teams, many=True)
+            ).select_related('schedule').prefetch_related('members')
+            if stage:
+                from django.db.models import Prefetch
+                from scores.models import TeamScore
+                teams = teams.prefetch_related(Prefetch('scores',queryset=TeamScore.objects.filter(stage=stage).select_related('schedule'),to_attr='_stage_scores'))
+            serializer = TeamRegistrationSerializer(teams, many=True, context=context)
         else:
-            registrations = Registration.objects.filter(
-                event=event, status__in=['submitted', 'approved']
-            ).select_related('student', 'schedule')
-            serializer = RegistrationDetailSerializer(registrations, many=True)
+            registrations = Registration.objects.filter(event=event, status__in=['submitted','approved'])
+            stage = request.query_params.get('stage')
+            if stage:
+                from scores.workflow import eligible_individuals
+                registrations = eligible_individuals(event, stage)
+            registrations = registrations.select_related('student','schedule')
+            if stage:
+                from django.db.models import Prefetch
+                from scores.models import Score
+                registrations = registrations.prefetch_related(Prefetch('scores',queryset=Score.objects.filter(stage=stage).select_related('schedule'),to_attr='_stage_scores'))
+            serializer = RegistrationDetailSerializer(registrations, many=True, context=context)
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdmin])
+    @transaction.atomic
     def auto_assign_lanes(self, request, pk=None):
         """自动分组 + 分配道次（按项目类型采用不同策略）"""
-        event = self.get_object()
+        from registration.services import lock_event
+        event = lock_event(self.get_object().pk)
         from registration.models import Registration, TeamRegistration
         from collections import defaultdict
-        lanes_per_group = int(request.data.get('lanes_per_group', 6))
-        stage = request.data.get('stage', 'preliminary')
+        from rest_framework import serializers
+        lanes_per_group = serializers.IntegerField(min_value=1,max_value=100).run_validation(object_data(request).get('lanes_per_group',6))
+        from scores.validation import stages
+        stage = object_data(request).get('stage', stages(event)[0])
+        if stage not in stages(event):
+            return Response({'detail': '阶段不符合项目赛制'}, status=400)
+        if event.sports_meet.status == 'finished':
+            return Response({'detail': '运动会已结束'}, status=400)
 
         is_team = event.event_type in ('relay', 'team_confrontation')
+        from scores.models import Score, TeamScore
+        from rest_framework.exceptions import ValidationError
+        scored = TeamScore.objects.filter(team_registration__event=event,stage=stage) if is_team else Score.objects.filter(registration__event=event,stage=stage)
+        if scored.exists():
+            raise ValidationError('本阶段已有成绩，不能重新自动分组')
 
         if is_team:
             # ── 团体项目：按班级排道次 ──
@@ -155,9 +210,14 @@ class EventViewSet(viewsets.ModelViewSet):
                 event=event, stage=stage, group_number=1,
                 defaults={'notes': '自动创建'}
             )
-            for lane, t in enumerate(teams, 1):
+            for index, t in enumerate(teams):
+                if event.event_type == 'relay':
+                    group, lane = divmod(index, lanes_per_group)
+                    schedule, _ = Schedule.objects.get_or_create(event=event, stage=stage, group_number=group+1, defaults={'notes':'自动创建'})
+                    t.lane = lane+1
+                else:
+                    t.lane = index+1
                 t.schedule = schedule
-                t.lane = lane
                 t.save(update_fields=['schedule', 'lane'])
 
             return Response({
@@ -165,15 +225,14 @@ class EventViewSet(viewsets.ModelViewSet):
             })
 
         # ── 个人项目 ──
-        registrations = list(Registration.objects.filter(
-            event=event, status='approved'
-        ).select_related('student'))
+        from scores.workflow import eligible_individuals
+        registrations = list(eligible_individuals(event, stage).select_related('student'))
 
         if not registrations:
             return Response({'detail': '没有已审核的报名记录'}, status=status.HTTP_400_BAD_REQUEST)
 
         # 清除旧分配
-        Registration.objects.filter(event=event, status='approved').update(schedule=None, lane=None)
+        Registration.objects.filter(event=event, status='approved', schedule__stage=stage).update(schedule=None, lane=None)
 
         # 班级交替排列：每个班轮流出一个人，相邻选手不同班
         class_groups = defaultdict(list)
@@ -232,15 +291,47 @@ class ScheduleViewSet(viewsets.ModelViewSet):
     queryset = Schedule.objects.select_related('event').all()
     permission_classes = [IsAdminOrReadOnly]
 
+    @transaction.atomic
+    def perform_create(self, serializer):
+        from registration.services import lock_event
+        serializer.validated_data['event'] = lock_event(serializer.validated_data['event'].pk)
+        serializer.validate(serializer.validated_data)
+        serializer.save()
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        from registration.services import lock_event
+        event = lock_event(serializer.instance.event_id)
+        from django.shortcuts import get_object_or_404
+        serializer.instance = get_object_or_404(Schedule.objects.select_for_update(),pk=serializer.instance.pk)
+        serializer.instance.event = event
+        if 'event' in serializer.validated_data: serializer.validated_data['event'] = event
+        serializer.validate(serializer.validated_data)
+        serializer.save()
+
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        from registration.services import lock_event
+        from scores.models import Score, TeamScore
+        from rest_framework.exceptions import ValidationError
+        event = lock_event(instance.event_id)
+        if event.sports_meet.status == 'finished':
+            raise ValidationError('运动会已结束，不能删除赛程')
+        if Score.objects.filter(schedule=instance).exists() or TeamScore.objects.filter(schedule=instance).exists() or Score.objects.filter(registration__schedule=instance, stage=instance.stage).exists() or TeamScore.objects.filter(team_registration__schedule=instance, stage=instance.stage).exists():
+            raise ValidationError('赛程已有成绩，不能删除')
+        instance.participants.update(schedule=None,lane=None)
+        instance.team_participants.update(schedule=None,lane=None)
+        instance.delete()
+
     def get_serializer_class(self):
         return ScheduleSerializer
 
     def get_queryset(self):
         qs = super().get_queryset()
-        event_id = self.request.query_params.get('event')
+        event_id = query_id(self.request.query_params, 'event')
         if event_id:
             qs = qs.filter(event_id=event_id)
-        meet_id = self.request.query_params.get('sports_meet')
+        meet_id = query_id(self.request.query_params, 'sports_meet')
         if meet_id:
             qs = qs.filter(event__sports_meet_id=meet_id)
         return qs

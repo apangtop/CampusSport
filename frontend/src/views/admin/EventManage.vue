@@ -69,9 +69,7 @@
             <el-form-item label="参赛年级">
               <el-select v-model="form.grade" style="width:100%" clearable placeholder="留空=全校混赛">
                 <el-option label="全校混赛" value="" />
-                <el-option label="2028级（初一）" value="2028级" />
-                <el-option label="2027级（初二）" value="2027级" />
-                <el-option label="2026级（初三）" value="2026级" />
+                <el-option v-for="grade in school.grades" :key="grade" :label="grade" :value="grade" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -113,6 +111,15 @@
           <el-input-number v-model="form.max_per_class" :min="1" style="width:180px" />
           <span style="margin-left:8px;color:#888;font-size:13px">人（本班在此项目最多报名人数）</span>
         </el-form-item>
+        <el-form-item label="每队人数" v-if="['relay', 'team_confrontation'].includes(form.event_type)">
+          <el-input-number v-model="form.team_size" :min="1" :max="100" />
+        </el-form-item>
+        <el-form-item label="对抗赛制" v-if="form.event_type === 'team_confrontation'">
+          <el-select v-model="form.confrontation_format">
+            <el-option label="三局两胜" value="bo3" />
+            <el-option label="五局三胜" value="bo5" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="负责裁判">
           <el-select v-model="form.referee" placeholder="选择裁判" clearable style="width:100%">
             <el-option v-for="r in referees" :key="r.id" :label="r.real_name || r.username" :value="r.id" />
@@ -140,12 +147,16 @@
 </template>
 
 <script setup>
+import { loadAllPages } from '@/utils/registration'
 import { ref, reactive, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { eventApi, userApi } from '@/api'
 
+import { useSchoolStore } from '@/stores/school'
+const school = useSchoolStore()
+onMounted(() => school.loadDirectory().catch(() => {}))
 const route = useRoute()
 const meetId = route.params.id
 const events = ref([])
@@ -178,7 +189,7 @@ const defaultForm = () => ({
   sports_meet: meetId, name: '', event_type: 'track', gender: 'male',
   grade: '', result_unit: 'second', stage_type: 'single', advance_per_group: 2,
   advance_wildcard: 1, max_per_class: 2,
-  team_size: 0, referee: null, score_multiplier: 1.0, score_rules: {}
+  team_size: 0, referee: null, score_multiplier: 1.0, score_rules: {}, confrontation_format: 'bo3'
 })
 const form = reactive(defaultForm())
 const rules = {
@@ -190,12 +201,13 @@ async function load() {
   loading.value = true
   const params = { sports_meet: meetId, page_size: 500 }
   if (filterType.value) params.type = filterType.value
-  const res = await eventApi.list(params)
+  const res = await loadAllPages(eventApi.list, params)
   events.value = res.results || res
   loading.value = false
 }
 
-function openDialog(row) {
+async function openDialog(row) {
+  if (row) row = await eventApi.get(row.id)
   editId.value = row?.id || null
   if (row) {
     Object.assign(form, row)

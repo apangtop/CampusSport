@@ -133,6 +133,11 @@ class Command(BaseCommand):
         parser.add_argument('--skip-students', action='store_true', help='跳过学生生成')
 
     def handle(self, *args, **options):
+        from django.conf import settings
+        from django.core.management.base import CommandError
+        from accounts.models import SchoolProfile
+        if not settings.DEBUG or SchoolProfile.objects.exists():
+            raise CommandError('演示数据命令仅允许在未初始化学校的本地开发库运行，正式学校请使用 bootstrap_school 和后台管理')
         skip_students = options.get('skip_students', False)
         if options['clear'] or options['clear_only']:
             self.stdout.write('[!] 正在清空旧数据...')

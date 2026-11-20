@@ -33,6 +33,7 @@
 </template>
 
 <script setup>
+import { loadAllPages } from '@/utils/registration'
 import { ref, onMounted } from 'vue'
 import { meetApi, pointsApi } from '@/api'
 
@@ -44,7 +45,7 @@ const filterMeet = ref('')
 async function load() {
   if (!filterMeet.value) return
   loading.value = true
-  const res = await pointsApi.list({ sports_meet: filterMeet.value, page_size: 200 })
+  const res = await loadAllPages(pointsApi.list, { sports_meet: filterMeet.value, grade: '' })
   points.value = res.results || res
   loading.value = false
 }

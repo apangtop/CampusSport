@@ -10,13 +10,14 @@ class Student(models.Model):
     name = models.CharField('姓名', max_length=50)
     gender = models.CharField('性别', max_length=10, choices=GENDER_CHOICES)
     class_name = models.CharField('班级', max_length=50)
-    student_id = models.CharField('学号', max_length=30, blank=True)
+    student_id = models.CharField('学号', max_length=30, blank=True, null=True, default=None)
     grade = models.CharField('年级', max_length=20, blank=True)
 
     class Meta:
         verbose_name = '学生'
         verbose_name_plural = '学生'
         ordering = ['class_name', 'name']
+        constraints = [models.UniqueConstraint(fields=['class_name','student_id'], name='student_class_identifier_unique')]
 
     def __str__(self):
         return f'{self.class_name} {self.name}'
@@ -60,6 +61,7 @@ class Registration(models.Model):
 class TeamRegistration(models.Model):
     """团体项目报名（接力/拔河等）"""
     STATUS_CHOICES = [
+        ('cancelled', '已取消'),
         ('submitted', '已提交'),
         ('approved', '已审核'),
         ('rejected', '已拒绝'),
@@ -84,6 +86,7 @@ class TeamRegistration(models.Model):
         verbose_name = '团体报名'
         verbose_name_plural = '团体报名'
         unique_together = [('event', 'class_name')]
+        ordering = ['event_id', 'pk']
 
     def __str__(self):
         return f'{self.class_name} 团体报名 {self.event.name}'

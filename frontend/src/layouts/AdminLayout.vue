@@ -6,7 +6,7 @@
     <el-aside :width="collapsed ? '0px' : '220px'" class="sidebar">
       <div class="logo-area" @click="collapsed = !collapsed">
         <span class="logo-icon">🏃</span>
-        <span class="logo-text">CampusSport</span>
+        <span class="logo-text">{{ school.system_name }}</span>
       </div>
       <el-menu :router="true" :default-active="$route.path" background-color="#001529"
         text-color="#ffffffa6" active-text-color="#fff">
@@ -22,6 +22,9 @@
         <el-menu-item index="/admin/accounts">
           <el-icon><UserFilled /></el-icon><template #title>账号管理</template>
         </el-menu-item>
+        <el-menu-item index="/admin/school-settings">
+          <el-icon><Setting /></el-icon><template #title>学校设置</template>
+        </el-menu-item>
         <el-menu-item index="/admin/history">
           <el-icon><Clock /></el-icon><template #title>历届数据</template>
         </el-menu-item>
@@ -33,7 +36,7 @@
           <el-icon v-if="isMobile" class="menu-toggle" :size="22" @click="collapsed = !collapsed">
             <Expand v-if="collapsed" /><Fold v-else />
           </el-icon>
-          <span class="header-title" v-if="isMobile && collapsed">CampusSport</span>
+          <span class="header-title" v-if="isMobile && collapsed">{{ school.system_name }}</span>
           <el-breadcrumb v-if="!isMobile" separator="/">
             <el-breadcrumb-item :to="{ path: '/admin/dashboard' }">首页</el-breadcrumb-item>
             <el-breadcrumb-item v-if="currentMeetName">{{ currentMeetName }}</el-breadcrumb-item>
@@ -70,10 +73,12 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
+import { useSchoolStore } from '@/stores/school'
 import { useAuthStore } from '@/stores/auth'
 import { Expand, Fold } from '@element-plus/icons-vue'
 
 const auth = useAuthStore()
+const school = useSchoolStore()
 const router = useRouter()
 const route = useRoute()
 const collapsed = ref(window.innerWidth < 768)
@@ -119,7 +124,7 @@ function handleCommand(cmd) {
   cursor: pointer; border-bottom: 1px solid #ffffff15; gap: 10px;
 }
 .logo-icon { font-size: 28px; }
-.logo-text { color: #fff; font-size: 18px; font-weight: 700; white-space: nowrap; }
+.logo-text { overflow: hidden; text-overflow: ellipsis; color: #fff; font-size: 18px; font-weight: 700; white-space: nowrap; }
 .el-menu { border-right: none; }
 .app-header {
   background: #fff; display: flex; align-items: center;

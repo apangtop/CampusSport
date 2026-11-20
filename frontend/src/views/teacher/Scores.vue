@@ -12,6 +12,7 @@
               <el-option label="全部" value="" />
               <el-option label="决赛" value="final" />
               <el-option label="初赛" value="preliminary" />
+              <el-option label="半决赛" value="semifinal" />
             </el-select>
           </div>
         </div>
@@ -40,9 +41,10 @@
 </template>
 
 <script setup>
+import { loadAllPages } from '@/utils/registration'
 import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { meetApi, scoreApi } from '@/api'
+import { meetApi, scoreApi, teamScoreApi } from '@/api'
 
 const auth = useAuthStore()
 const meets = ref([])
@@ -51,20 +53,28 @@ const loading = ref(false)
 const filterMeet = ref('')
 const filterStage = ref('')
 
-const stageMap = { preliminary:'初赛', final:'决赛' }
+const stageMap = { preliminary:'初赛', semifinal:'半决赛', final:'决赛' }
 
+let loadVersion = 0
 async function load() {
-  if (!filterMeet.value) return
+  const version = ++loadVersion
+  if (!filterMeet.value) { scores.value = []; loading.value = false; return }
   loading.value = true
   const params = { sports_meet: filterMeet.value, class_name: auth.user?.class_name }
   if (filterStage.value) params.stage = filterStage.value
-  const res = await scoreApi.list({ ...params, page_size: 500 })
-  scores.value = (res.results || res).sort((a, b) => (a.rank || 999) - (b.rank || 999))
-  loading.value = false
+  try {
+    const [res, teams] = await Promise.all([
+      loadAllPages(p => scoreApi.list(p), params),
+      loadAllPages(p => teamScoreApi.list(p), params)
+    ])
+    if (version !== loadVersion) return
+    scores.value = [...(res.results || res), ...(teams.results || teams).map(s => ({ ...s, student_name: '团体' }))]
+      .sort((a, b) => (a.rank || 999) - (b.rank || 999))
+  } finally { if (version === loadVersion) loading.value = false }
 }
 
 onMounted(async () => {
-  const res = await meetApi.list()
+  const res = await loadAllPages(p => meetApi.list(p))
   meets.value = res.results || res
   if (meets.value.length) { filterMeet.value = meets.value[0].id; load() }
 })

@@ -25,6 +25,7 @@ const routes = [
       { path: 'meets/:id/points', name: 'PointsBoard', component: () => import('@/views/admin/PointsBoard.vue') },
       { path: 'meets/:id/report', name: 'ReportExport', component: () => import('@/views/admin/ReportExport.vue') },
       { path: 'meets/:id/participants', name: 'ParticipantView', component: () => import('@/views/admin/ParticipantView.vue') },
+      { path: 'school-settings', name: 'SchoolSettings', component: () => import('@/views/admin/SchoolSettings.vue') },
       { path: 'accounts', name: 'AccountManage', component: () => import('@/views/admin/AccountManage.vue') },
       { path: 'students', name: 'StudentManage', component: () => import('@/views/admin/StudentManage.vue') },
       { path: 'history', name: 'HistoryData', component: () => import('@/views/admin/HistoryData.vue') },

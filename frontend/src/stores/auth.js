@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { authApi } from '@/api'
+import { useSchoolStore } from '@/stores/school'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -16,6 +17,8 @@ export const useAuthStore = defineStore('auth', {
   actions: {
     async login(username, password) {
       const res = await authApi.login({ username, password })
+      useSchoolStore().classes = []
+      useSchoolStore().grades = []
       this.token = res.access
       this.user = res.user
       localStorage.setItem('access_token', res.access)
@@ -23,6 +26,8 @@ export const useAuthStore = defineStore('auth', {
       return res.user
     },
     logout() {
+      useSchoolStore().classes = []
+      useSchoolStore().grades = []
       this.token = ''
       this.user = null
       localStorage.removeItem('access_token')
